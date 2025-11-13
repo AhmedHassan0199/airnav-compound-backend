@@ -73,6 +73,10 @@ def resident_invoice_pdf(invoice_id: int):
     )
     if not invoice:
         return jsonify({"message": "invoice not found"}), 404
+    
+    # 👇 NEW: only allow PAID invoices to be printed
+    if invoice.status != "PAID":
+        return jsonify({"message": "invoice is not paid yet"}), 403
 
     details = PersonDetails.query.filter_by(user_id=user.id).first()
 
