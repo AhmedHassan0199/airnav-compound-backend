@@ -1,9 +1,8 @@
-from flask import Blueprint, jsonify, send_file
+from flask import Blueprint, jsonify, send_file, render_template, current_app
 from app.models import PersonDetails, MaintenanceInvoice
 from .auth.routes import get_current_user_from_request
 from io import BytesIO
-from reportlab.lib.pagesizes import A4
-from reportlab.pdfgen import canvas
+from weasyprint import HTML
 
 resident_bp = Blueprint("resident", __name__)
 
@@ -77,53 +76,37 @@ def resident_invoice_pdf(invoice_id: int):
 
     details = PersonDetails.query.filter_by(user_id=user.id).first()
 
-    # Create PDF in memory
-    buffer = BytesIO()
-    c = canvas.Canvas(buffer, pagesize=A4)
-    width, height = A4
+    full_name = details.full_name if details else user.username
+    building = details.building if details else "-"
+    floor = details.floor if details else "-"
+    apartment = details.apartment if details else "-"
 
-    # Simple layout (can prettify later)
-    y = height - 80
+    context = {
+        "full_name": full_name,
+        "building": building,
+        "floor": floor,
+        "apartment": apartment,
+        "year": invoice.year,
+        "month": invoice.month,
+        "amount": f"{float(invoice.amount):.2f}",
+        "status": invoice.status,
+        "due_date": invoice.due_date.isoformat() if invoice.due_date else None,
+        "paid_date": invoice.paid_date.isoformat() if invoice.paid_date else None,
+        "notes": invoice.notes,
+    }
 
-    c.setFont("Helvetica-Bold", 16)
-    c.drawString(50, y, "فاتورة صيانة شهرية")
-    y -= 40
+    # Render HTML using Flask template
+    html_str = render_template("invoice.html", **context)
 
-    c.setFont("Helvetica", 11)
-    c.drawString(50, y, f"المقيم: {details.full_name if details else user.username}")
-    y -= 18
-    if details:
-        c.drawString(50, y, f"الوحدة: مبنى {details.building} - دور {details.floor} - شقة {details.apartment}")
-        y -= 18
-
-    c.drawString(50, y, f"الشهر: {invoice.month}/{invoice.year}")
-    y -= 18
-    c.drawString(50, y, f"القيمة: {float(invoice.amount):.2f} جنيه مصري")
-    y -= 18
-    c.drawString(50, y, f"الحالة: {invoice.status}")
-    y -= 18
-    if invoice.due_date:
-        c.drawString(50, y, f"تاريخ الاستحقاق: {invoice.due_date.isoformat()}")
-        y -= 18
-    if invoice.paid_date:
-        c.drawString(50, y, f"تاريخ السداد: {invoice.paid_date.isoformat()}")
-        y -= 18
-
-    if invoice.notes:
-        y -= 10
-        c.drawString(50, y, f"ملاحظات: {invoice.notes}")
-
-    y -= 40
-    c.setFont("Helvetica-Oblique", 9)
-    c.drawString(50, y, "تم إنشاء هذه الفاتورة من بوابة اتحاد شاغلين مدينة الملاحة الجوية.")
-
-    c.showPage()
-    c.save()
-    buffer.seek(0)
+    # Generate PDF in memory
+    pdf_io = BytesIO()
+    # base_url is important so WeasyPrint can resolve relative URLs (if we add fonts/images later)
+    HTML(string=html_str, base_url=current_app.root_path).write_pdf(pdf_io)
+    pdf_io.seek(0)
 
     filename = f"maintenance_invoice_{invoice.year}_{invoice.month}.pdf"
     return send_file(
-        buffer,
+        pdf_io,
         as_attachment=True,
         download_name=filename,
         mimetype="application/pdf",
