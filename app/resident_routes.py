@@ -2,7 +2,13 @@ from flask import Blueprint, jsonify, send_file, render_template, current_app
 from app.models import PersonDetails, MaintenanceInvoice
 from .auth.routes import get_current_user_from_request
 from io import BytesIO
-from weasyprint import HTML
+# Try importing WeasyPrint; on Windows this may fail
+try:
+    from weasyprint import HTML
+    WEASYPRINT_AVAILABLE = True
+except OSError:
+    HTML = None
+    WEASYPRINT_AVAILABLE = False
 
 resident_bp = Blueprint("resident", __name__)
 
@@ -61,6 +67,10 @@ def resident_invoices():
 
 @resident_bp.route("/invoices/<int:invoice_id>/pdf", methods=["GET"])
 def resident_invoice_pdf(invoice_id: int):
+    # If WeasyPrint is not available (e.g. local Windows dev), fail gracefully
+    if not WEASYPRINT_AVAILABLE:
+        return jsonify({"message": "PDF generation is not available in this environment"}), 500
+
     user, error = get_current_user_from_request(allowed_roles=["RESIDENT"])
     if error:
         message, status = error
