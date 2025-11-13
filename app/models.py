@@ -1,3 +1,4 @@
+from datetime import date
 from . import db
 from werkzeug.security import generate_password_hash, check_password_hash
 
@@ -42,3 +43,32 @@ class PersonDetails(db.Model):
 
     def __repr__(self):
         return f"<PersonDetails {self.full_name} (B{self.building}/F{self.floor}/A{self.apartment})>"
+
+class MaintenanceInvoice(db.Model):
+    __tablename__ = "maintenance_invoices"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(
+        db.Integer,
+        db.ForeignKey("users.id"),
+        nullable=False,
+        index=True,
+    )
+    year = db.Column(db.Integer, nullable=False)
+    month = db.Column(db.Integer, nullable=False)  # 1–12
+    amount = db.Column(db.Numeric(10, 2), nullable=False)
+    status = db.Column(db.String(20), nullable=False, default="PENDING")
+    due_date = db.Column(db.Date, nullable=False)
+    paid_date = db.Column(db.Date, nullable=True)
+    notes = db.Column(db.String(255), nullable=True)
+
+    created_at = db.Column(db.Date, default=date.today)
+    updated_at = db.Column(db.Date, default=date.today, onupdate=date.today)
+
+    user = db.relationship(
+        "User",
+        backref=db.backref("maintenance_invoices", lazy="dynamic"),
+    )
+
+    def __repr__(self):
+        return f"<Invoice {self.year}-{self.month} for user {self.user_id}: {self.status}>"

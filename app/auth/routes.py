@@ -103,3 +103,34 @@ def me():
         "username": user.username,
         "role": user.role,
     })
+
+def get_current_user_from_request(allowed_roles=None):
+    """
+    Read Authorization header, decode JWT, return User object.
+    If allowed_roles is provided, ensure user.role is in that list.
+    """
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        return None, ("missing token", 401)
+
+    token = auth_header.split(" ", 1)[1].strip()
+    try:
+        payload = decode_token(token)
+    except ExpiredSignatureError:
+        return None, ("token expired", 401)
+    except InvalidTokenError as e:
+        return None, (f"invalid token: {str(e)}", 401)
+
+    try:
+        user_id = int(payload["sub"])
+    except (KeyError, ValueError, TypeError):
+        return None, ("invalid token payload", 401)
+
+    user = User.query.get(user_id)
+    if not user:
+        return None, ("user not found", 404)
+
+    if allowed_roles and user.role not in allowed_roles:
+        return None, ("forbidden", 403)
+
+    return user, None
