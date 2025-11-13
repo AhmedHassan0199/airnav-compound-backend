@@ -7,6 +7,11 @@ from .config import Config
 db = SQLAlchemy()
 migrate = Migrate()
 
+CORS(app, origins=[
+    "http://localhost:3000",
+    "https://airnav-compound-frontend.vercel.app",
+], supports_credentials=True)
+
 def create_app():
     app = Flask(__name__)
     app.config.from_object(Config)
