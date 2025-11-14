@@ -1,0 +1,41 @@
+name: Deploy Backend to Vultr
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout (not strictly needed, but ok)
+        uses: actions/checkout@v4
+
+      - name: Set up SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.VPS_SSH_KEY }}
+
+      - name: Deploy backend on Vultr
+        run: |
+          ssh -o StrictHostKeyChecking=no ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'EOF'
+          set -e
+
+          cd /apps/airnav-compound-app/backend
+
+          echo "Pulling latest backend code..."
+          git fetch --all
+          git reset --hard origin/main
+
+          cd /apps/airnav-compound-app
+
+          echo "Building backend service..."
+          docker compose build backend
+
+          echo "Restarting backend service..."
+          docker compose up -d backend
+
+          echo "Backend deployment complete ✅"
+          EOF
