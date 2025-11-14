@@ -32,4 +32,4 @@ COPY . .
 ENV PORT=8000
 
 # Run gunicorn
-CMD ["gunicorn", "main:app", "--bind", "0.0.0.0:${PORT}"]
+CMD ["gunicorn", "main:app", "--bind", "0.0.0.0:8000"]
