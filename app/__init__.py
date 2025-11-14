@@ -18,7 +18,8 @@ def create_app():
         origins=[
             "http://localhost:3000",
             "http://127.0.0.1:3000",
-            "https://airnav-compound-frontend.vercel.app"  # ADD YOUR VERCEL URL
+            "https://airnav-compound-frontend.vercel.app",  # ADD YOUR VERCEL URL,
+            "http://95.179.181.72/:3000"
         ],
         supports_credentials=True,
     )
