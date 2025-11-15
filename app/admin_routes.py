@@ -1,6 +1,6 @@
 from datetime import date
 from flask import Blueprint, jsonify, request
-from sqlalchemy import or_
+from sqlalchemy import or_, func
 
 from app import db
 from app.models import User, PersonDetails, MaintenanceInvoice, Payment
@@ -303,3 +303,91 @@ def admin_delete_invoice(invoice_id: int):
     db.session.commit()
 
     return jsonify({"message": "invoice deleted"}), 200
+
+@admin_bp.route("/me/summary", methods=["GET"])
+def admin_me_summary():
+    """
+    Return summary for the current admin:
+    - total collected amount
+    - number of payments
+    - today's collected amount and count
+    - recent payments list
+    """
+    current_user, error = get_current_user_from_request(allowed_roles=["ADMIN"])
+    if error:
+        message, status = error
+        return jsonify({"message": message}), status
+
+    # Total
+    total_amount = (
+        db.session.query(func.coalesce(func.sum(Payment.amount), 0))
+        .filter(Payment.collected_by_admin_id == current_user.id)
+        .scalar()
+        or 0
+    )
+
+    payments_count = (
+        db.session.query(func.count(Payment.id))
+        .filter(Payment.collected_by_admin_id == current_user.id)
+        .scalar()
+        or 0
+    )
+
+    # Today
+    today = date.today()
+    today_amount = (
+        db.session.query(func.coalesce(func.sum(Payment.amount), 0))
+        .filter(
+            Payment.collected_by_admin_id == current_user.id,
+            Payment.created_at == today,
+        )
+        .scalar()
+        or 0
+    )
+
+    today_count = (
+        db.session.query(func.count(Payment.id))
+        .filter(
+            Payment.collected_by_admin_id == current_user.id,
+            Payment.created_at == today,
+        )
+        .scalar()
+        or 0
+    )
+
+    # Recent payments (join resident + invoice)
+    recent = (
+        db.session.query(Payment, MaintenanceInvoice, PersonDetails)
+        .join(MaintenanceInvoice, Payment.invoice_id == MaintenanceInvoice.id)
+        .join(PersonDetails, PersonDetails.user_id == Payment.user_id)
+        .filter(Payment.collected_by_admin_id == current_user.id)
+        .order_by(Payment.created_at.desc())
+        .limit(10)
+        .all()
+    )
+
+    recent_list = []
+    for pay, inv, details in recent:
+        recent_list.append(
+            {
+                "id": pay.id,
+                "amount": float(pay.amount),
+                "created_at": pay.created_at.isoformat(),
+                "resident_name": details.full_name,
+                "building": details.building,
+                "floor": details.floor,
+                "apartment": details.apartment,
+                "year": inv.year,
+                "month": inv.month,
+            }
+        )
+
+    return jsonify(
+        {
+            "total_amount": float(total_amount),
+            "payments_count": int(payments_count),
+            "today_amount": float(today_amount),
+            "today_count": int(today_count),
+            "recent_payments": recent_list,
+        }
+    )

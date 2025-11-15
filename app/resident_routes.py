@@ -1,5 +1,5 @@
 from flask import Blueprint, jsonify, send_file, render_template, current_app
-from app.models import PersonDetails, MaintenanceInvoice
+from app.models import PersonDetails, MaintenanceInvoice, User
 from .auth.routes import get_current_user_from_request
 from io import BytesIO
 # Try importing WeasyPrint; on Windows this may fail
@@ -9,6 +9,8 @@ try:
 except OSError:
     HTML = None
     WEASYPRINT_AVAILABLE = False
+
+
 
 resident_bp = Blueprint("resident", __name__)
 
@@ -67,30 +69,40 @@ def resident_invoices():
 
 @resident_bp.route("/invoices/<int:invoice_id>/pdf", methods=["GET"])
 def resident_invoice_pdf(invoice_id: int):
-    # If WeasyPrint is not available (e.g. local Windows dev), fail gracefully
+    # If WeasyPrint is not available locally (e.g. on Windows), fail gracefully
     if not WEASYPRINT_AVAILABLE:
         return jsonify({"message": "PDF generation is not available in this environment"}), 500
 
-    user, error = get_current_user_from_request(allowed_roles=["RESIDENT"])
+    user, error = get_current_user_from_request(
+        allowed_roles=["RESIDENT", "ADMIN", "SUPERADMIN"]
+    )
     if error:
         message, status = error
         return jsonify({"message": message}), status
 
-    invoice = (
-        MaintenanceInvoice.query
-        .filter_by(id=invoice_id, user_id=user.id)
-        .first()
-    )
+    # Load invoice (for any user)
+    invoice = MaintenanceInvoice.query.filter_by(id=invoice_id).first()
     if not invoice:
         return jsonify({"message": "invoice not found"}), 404
-    
-    # 👇 NEW: only allow PAID invoices to be printed
+
+    # Permissions:
+    # - RESIDENT: must own this invoice
+    # - ADMIN / SUPERADMIN: can view any invoice
+    if user.role == "RESIDENT" and invoice.user_id != user.id:
+        return jsonify({"message": "not allowed to access this invoice"}), 403
+
+    # Only PAID invoices can be printed
     if invoice.status != "PAID":
         return jsonify({"message": "invoice is not paid yet"}), 403
 
-    details = PersonDetails.query.filter_by(user_id=user.id).first()
+    # Always show the RESIDENT info in the PDF
+    resident_user = User.query.filter_by(id=invoice.user_id, role="RESIDENT").first()
+    if not resident_user:
+        return jsonify({"message": "resident not found for this invoice"}), 404
 
-    full_name = details.full_name if details else user.username
+    details = PersonDetails.query.filter_by(user_id=resident_user.id).first()
+
+    full_name = details.full_name if details else resident_user.username
     building = details.building if details else "-"
     floor = details.floor if details else "-"
     apartment = details.apartment if details else "-"
@@ -109,12 +121,9 @@ def resident_invoice_pdf(invoice_id: int):
         "notes": invoice.notes,
     }
 
-    # Render HTML using Flask template
     html_str = render_template("invoice.html", **context)
 
-    # Generate PDF in memory
     pdf_io = BytesIO()
-    # base_url is important so WeasyPrint can resolve relative URLs (if we add fonts/images later)
     HTML(string=html_str, base_url=current_app.root_path).write_pdf(pdf_io)
     pdf_io.seek(0)
 
@@ -125,3 +134,4 @@ def resident_invoice_pdf(invoice_id: int):
         download_name=filename,
         mimetype="application/pdf",
     )
+
