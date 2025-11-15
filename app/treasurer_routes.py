@@ -1,9 +1,9 @@
-from datetime import date
+from datetime import date, datetime
 from flask import Blueprint, jsonify, request
 from sqlalchemy import func
 
 from app import db
-from app.models import User, PersonDetails, Payment, Settlement
+from app.models import User, PersonDetails, Payment, Settlement, MaintenanceInvoice
 from .auth.routes import get_current_user_from_request
 
 treasurer_bp = Blueprint("treasurer", __name__)
@@ -193,3 +193,79 @@ def treasurer_create_settlement():
             "summary": new_summary,
         }
     ), 201
+
+@treasurer_bp.route("/summary", methods=["GET"])
+def treasurer_summary():
+    """
+    Overall financial summary for the union:
+    - total collected (all time)
+    - total settled from admins to union
+    - current union balance
+    - today's collected
+    - this month's collected
+    - total invoices (paid / unpaid)
+    """
+    current_user, error = get_current_user_from_request(allowed_roles=["TREASURER", "SUPERADMIN"])
+    if error:
+        message, status = error
+        return jsonify({"message": message}), status
+
+    today = date.today()
+    first_of_month = date(today.year, today.month, 1)
+
+    # Collected from residents by all admins
+    total_collected = (
+        db.session.query(func.coalesce(func.sum(Payment.amount), 0))
+        .scalar()
+        or 0
+    )
+
+    # Settled to union by admins
+    total_settled = (
+        db.session.query(func.coalesce(func.sum(Settlement.amount), 0))
+        .scalar()
+        or 0
+    )
+
+    # Union balance = total_settled (simple model; can be adjusted later for other incomes)
+    union_balance = float(total_settled)
+
+    # Today collected
+    today_collected = (
+        db.session.query(func.coalesce(func.sum(Payment.amount), 0))
+        .filter(Payment.created_at == today)
+        .scalar()
+        or 0
+    )
+
+    # This month collected
+    this_month_collected = (
+        db.session.query(func.coalesce(func.sum(Payment.amount), 0))
+        .filter(Payment.created_at >= first_of_month)
+        .scalar()
+        or 0
+    )
+
+    # Invoice stats
+    total_invoices = db.session.query(func.count(MaintenanceInvoice.id)).scalar() or 0
+    paid_invoices = (
+        db.session.query(func.count(MaintenanceInvoice.id))
+        .filter(MaintenanceInvoice.status == "PAID")
+        .scalar()
+        or 0
+    )
+    unpaid_invoices = total_invoices - paid_invoices
+
+    return jsonify(
+        {
+            "total_collected": float(total_collected),
+            "total_settled": float(total_settled),
+            "union_balance": float(union_balance),
+            "today_collected": float(today_collected),
+            "this_month_collected": float(this_month_collected),
+            "total_invoices": int(total_invoices),
+            "paid_invoices": int(paid_invoices),
+            "unpaid_invoices": int(unpaid_invoices),
+        }
+    )
+
