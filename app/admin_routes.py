@@ -69,7 +69,6 @@ def admin_search_residents():
 
     return jsonify(results)
 
-
 @admin_bp.route("/residents/<int:user_id>/invoices", methods=["GET"])
 def admin_resident_invoices(user_id: int):
     """
@@ -113,7 +112,6 @@ def admin_resident_invoices(user_id: int):
         },
         "invoices": result,
     })
-
 
 @admin_bp.route("/collect", methods=["POST"])
 def admin_collect_payment():
@@ -192,3 +190,116 @@ def admin_collect_payment():
             "created_at": payment.created_at.isoformat(),
         }
     })
+
+@admin_bp.route("/invoices", methods=["POST"])
+def admin_create_invoice():
+    """
+    Admin creates a new maintenance invoice for a resident.
+    """
+    current_user, error = get_current_user_from_request(allowed_roles=["ADMIN"])
+    if error:
+        message, status = error
+        return jsonify({"message": message}), status
+
+    data = request.get_json() or {}
+    user_id = data.get("user_id")
+    year = data.get("year")
+    month = data.get("month")
+    amount = data.get("amount")
+    due_date_str = data.get("due_date")  # optional: "YYYY-MM-DD"
+    notes = data.get("notes")
+
+    if not all([user_id, year, month, amount]):
+        return jsonify({"message": "user_id, year, month and amount are required"}), 400
+
+    try:
+        year = int(year)
+        month = int(month)
+        if month < 1 or month > 12:
+            raise ValueError()
+    except Exception:
+        return jsonify({"message": "invalid year or month"}), 400
+
+    try:
+        amount_val = float(amount)
+        if amount_val <= 0:
+            raise ValueError()
+    except Exception:
+        return jsonify({"message": "invalid amount"}), 400
+
+    resident = User.query.filter_by(id=user_id, role="RESIDENT").first()
+    if not resident:
+        return jsonify({"message": "resident not found"}), 404
+
+    # تأكد إنه مفيش فاتورة لنفس الشهر و السنة
+    existing = (
+        MaintenanceInvoice.query
+        .filter_by(user_id=user_id, year=year, month=month)
+        .first()
+    )
+    if existing:
+        return jsonify({
+            "message": "يوجد بالفعل فاتورة لهذا الشهر والسنة. يمكنك حذف الفاتورة القديمة أولاً ثم إنشاء واحدة جديدة."
+        }), 400
+
+    # Parse due_date لو موجود
+    due_date = None
+    if due_date_str:
+        try:
+            due_date = date.fromisoformat(due_date_str)
+        except Exception:
+            return jsonify({"message": "invalid due_date format, expected YYYY-MM-DD"}), 400
+
+    invoice = MaintenanceInvoice(
+        user_id=user_id,
+        year=year,
+        month=month,
+        amount=amount_val,
+        status="PENDING",
+        due_date=due_date,
+        notes=notes,
+    )
+
+    db.session.add(invoice)
+    db.session.commit()
+
+    return jsonify({
+        "message": "invoice created",
+        "invoice": {
+            "id": invoice.id,
+            "year": invoice.year,
+            "month": invoice.month,
+            "amount": float(invoice.amount),
+            "status": invoice.status,
+            "due_date": invoice.due_date.isoformat() if invoice.due_date else None,
+            "paid_date": invoice.paid_date.isoformat() if invoice.paid_date else None,
+            "notes": invoice.notes,
+        }
+    }), 201
+
+@admin_bp.route("/invoices/<int:invoice_id>", methods=["DELETE"])
+def admin_delete_invoice(invoice_id: int):
+    """
+    Admin deletes an invoice (only if not PAID and has no payments).
+    """
+    current_user, error = get_current_user_from_request(allowed_roles=["ADMIN"])
+    if error:
+        message, status = error
+        return jsonify({"message": message}), status
+
+    invoice = MaintenanceInvoice.query.filter_by(id=invoice_id).first()
+    if not invoice:
+        return jsonify({"message": "invoice not found"}), 404
+
+    # من باب الأمان: منمسحش فاتورة مدفوعة أو عليها Payments
+    if invoice.status == "PAID":
+        return jsonify({"message": "cannot delete a PAID invoice"}), 400
+
+    payments_count = Payment.query.filter_by(invoice_id=invoice.id).count()
+    if payments_count > 0:
+        return jsonify({"message": "cannot delete invoice that has payments recorded"}), 400
+
+    db.session.delete(invoice)
+    db.session.commit()
+
+    return jsonify({"message": "invoice deleted"}), 200
