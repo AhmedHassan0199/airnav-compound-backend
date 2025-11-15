@@ -3,7 +3,7 @@ from flask import Blueprint, jsonify, request
 from sqlalchemy import func
 
 from app import db
-from app.models import User, PersonDetails, Payment, Settlement, MaintenanceInvoice
+from app.models import User, PersonDetails, Payment, Settlement, MaintenanceInvoice, UnionLedgerEntry
 from .auth.routes import get_current_user_from_request
 
 treasurer_bp = Blueprint("treasurer", __name__)
@@ -181,6 +181,20 @@ def treasurer_create_settlement():
     )
 
     db.session.add(settlement)
+    # Ledger: settlement increases union balance (credit)
+    current_balance = get_union_balance()
+    new_balance = current_balance + amount_val
+
+    ledger_entry = UnionLedgerEntry(
+        date=date.today(),
+        description=f"تسوية من مسؤول التحصيل {admin.username}",
+        debit=0,
+        credit=amount_val,
+        balance_after=new_balance,
+        entry_type="SETTLEMENT",
+        created_by_id=current_user.id,
+    )
+    db.session.add(ledger_entry)
     db.session.commit()
 
     # Recompute summary after settlement
@@ -269,3 +283,54 @@ def treasurer_summary():
         }
     )
 
+
+def get_union_balance():
+    last_entry = (
+        db.session.query(UnionLedgerEntry)
+        .order_by(UnionLedgerEntry.id.desc())
+        .first()
+    )
+    if last_entry:
+        return float(last_entry.balance_after)
+    return 0.0
+
+@treasurer_bp.route("/ledger", methods=["GET"])
+def treasurer_ledger_list():
+    """
+    List union ledger entries (latest first).
+    Optional query param: limit (default 50)
+    """
+    current_user, error = get_current_user_from_request(allowed_roles=["TREASURER", "SUPERADMIN"])
+    if error:
+        message, status = error
+        return jsonify({"message": message}), status
+
+    try:
+        limit = int(request.args.get("limit", 50))
+    except ValueError:
+        limit = 50
+
+    entries = (
+        db.session.query(UnionLedgerEntry, User)
+        .join(User, UnionLedgerEntry.created_by_id == User.id)
+        .order_by(UnionLedgerEntry.id.desc())
+        .limit(limit)
+        .all()
+    )
+
+    result = []
+    for entry, user in entries:
+        result.append(
+            {
+                "id": entry.id,
+                "date": entry.date.isoformat(),
+                "description": entry.description,
+                "debit": float(entry.debit),
+                "credit": float(entry.credit),
+                "balance_after": float(entry.balance_after),
+                "entry_type": entry.entry_type,
+                "created_by": user.username,
+            }
+        )
+
+    return jsonify(result)

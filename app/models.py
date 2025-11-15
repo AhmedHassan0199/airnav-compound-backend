@@ -162,4 +162,19 @@ class Settlement(db.Model):
     def __repr__(self):
         return f"<Settlement {self.amount} from admin {self.admin_id}>"
 
+class UnionLedgerEntry(db.Model):
+    __tablename__ = "union_ledger"
 
+    id = db.Column(db.Integer, primary_key=True)
+    date = db.Column(db.Date, default=date.today, nullable=False)
+    description = db.Column(db.String(255), nullable=False)
+
+    debit = db.Column(db.Numeric(10, 2), default=0, nullable=False)
+    credit = db.Column(db.Numeric(10, 2), default=0, nullable=False)
+
+    balance_after = db.Column(db.Numeric(10, 2), default=0, nullable=False)
+
+    entry_type = db.Column(db.String(50), nullable=False)  # e.g. "SETTLEMENT", "EXPENSE"
+    created_by_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+
+    created_by = db.relationship("User", backref="ledger_entries")
