@@ -1,8 +1,7 @@
-# app/notification_routes.py (example)
 from flask import Blueprint, request, jsonify
 from app.extensions import db
 from app.models import NotificationSubscription
-from app.auth_utils import get_current_user_from_request
+from .auth.routes import get_current_user_from_request
 
 notifications_bp = Blueprint("notifications", __name__)
 
