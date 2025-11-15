@@ -3,7 +3,7 @@ from flask import Blueprint, jsonify, request
 from sqlalchemy import func
 
 from app import db
-from app.models import User, PersonDetails, Payment, Settlement, MaintenanceInvoice, UnionLedgerEntry
+from app.models import User, PersonDetails, Payment, Settlement, MaintenanceInvoice, UnionLedgerEntry, Expense
 from .auth.routes import get_current_user_from_request
 
 treasurer_bp = Blueprint("treasurer", __name__)
