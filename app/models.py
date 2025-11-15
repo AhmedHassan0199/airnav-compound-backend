@@ -121,3 +121,43 @@ class Payment(db.Model):
 
     def __repr__(self):
         return f"<Payment {self.amount} for invoice {self.invoice_id} by admin {self.collected_by_admin_id}>"
+
+class Settlement(db.Model):
+    __tablename__ = "settlements"
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    admin_id = db.Column(
+        db.Integer,
+        db.ForeignKey("users.id"),
+        nullable=False,
+        index=True,
+    )
+
+    treasurer_id = db.Column(
+        db.Integer,
+        db.ForeignKey("users.id"),
+        nullable=True,
+        index=True,
+    )
+
+    amount = db.Column(db.Numeric(10, 2), nullable=False)
+    created_at = db.Column(db.Date, default=date.today)
+    notes = db.Column(db.String(255), nullable=True)
+
+    admin = db.relationship(
+        "User",
+        foreign_keys=[admin_id],
+        backref=db.backref("settlements", lazy="dynamic"),
+    )
+
+    treasurer = db.relationship(
+        "User",
+        foreign_keys=[treasurer_id],
+        backref=db.backref("approved_settlements", lazy="dynamic"),
+    )
+
+    def __repr__(self):
+        return f"<Settlement {self.amount} from admin {self.admin_id}>"
+
+

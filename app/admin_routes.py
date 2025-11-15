@@ -3,7 +3,7 @@ from flask import Blueprint, jsonify, request
 from sqlalchemy import or_, func
 
 from app import db
-from app.models import User, PersonDetails, MaintenanceInvoice, Payment
+from app.models import User, PersonDetails, MaintenanceInvoice, Payment, Settlement
 from .auth.routes import get_current_user_from_request
 
 admin_bp = Blueprint("admin", __name__)
@@ -307,18 +307,20 @@ def admin_delete_invoice(invoice_id: int):
 @admin_bp.route("/me/summary", methods=["GET"])
 def admin_me_summary():
     """
-    Return summary for the current admin:
+    Summary for the current admin:
     - total collected amount
     - number of payments
     - today's collected amount and count
-    - recent payments list
+    - settled amount
+    - outstanding amount
+    - recent payments
     """
     current_user, error = get_current_user_from_request(allowed_roles=["ADMIN"])
     if error:
         message, status = error
         return jsonify({"message": message}), status
 
-    # Total
+    # Total collected
     total_amount = (
         db.session.query(func.coalesce(func.sum(Payment.amount), 0))
         .filter(Payment.collected_by_admin_id == current_user.id)
@@ -355,7 +357,18 @@ def admin_me_summary():
         or 0
     )
 
-    # Recent payments (join resident + invoice)
+    # Total settled (what admin already handed over to treasurer)
+    settled_amount = (
+        db.session.query(func.coalesce(func.sum(Settlement.amount), 0))
+        .filter(Settlement.admin_id == current_user.id)
+        .scalar()
+        or 0
+    )
+
+    # Outstanding = collected - settled
+    outstanding_amount = float(total_amount) - float(settled_amount)
+
+    # Recent payments
     recent = (
         db.session.query(Payment, MaintenanceInvoice, PersonDetails)
         .join(MaintenanceInvoice, Payment.invoice_id == MaintenanceInvoice.id)
@@ -388,6 +401,9 @@ def admin_me_summary():
             "payments_count": int(payments_count),
             "today_amount": float(today_amount),
             "today_count": int(today_count),
+            "settled_amount": float(settled_amount),
+            "outstanding_amount": float(outstanding_amount),
             "recent_payments": recent_list,
         }
     )
+
