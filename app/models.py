@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date,datetime
 from . import db
 from werkzeug.security import generate_password_hash, check_password_hash
 
@@ -190,3 +190,17 @@ class Expense(db.Model):
 
     created_by_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     created_by = db.relationship("User", backref="expenses")
+
+class NotificationSubscription(db.Model):
+    __tablename__ = "notification_subscriptions"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    token = db.Column(db.String(512), nullable=False, unique=True)
+    user_agent = db.Column(db.String(256))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(
+        db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+    user = db.relationship("User", backref="notification_subscriptions")
