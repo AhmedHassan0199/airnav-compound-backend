@@ -36,6 +36,8 @@ class PersonDetails(db.Model):
         unique=True,
     )
 
+    phone = db.Column(db.String(30), nullable=True)  # e.g. +201001234567
+    
     user = db.relationship(
         "User",
         backref=db.backref("person_details", uselist=False),

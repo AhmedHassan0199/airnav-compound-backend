@@ -429,6 +429,7 @@ def superadmin_create_user():
     building = data.get("building", "").strip() or None
     floor = data.get("floor", "").strip() or None
     apartment = data.get("apartment", "").strip() or None
+    phone = data.get("phone", "").strip() or None
 
     if not username or not password or not role:
         return jsonify({"message": "username, password and role are required"}), 400
@@ -456,6 +457,7 @@ def superadmin_create_user():
             building=building or "",
             floor=floor or "",
             apartment=apartment or "",
+            phone=phone or "",
         )
         db.session.add(details)
 
