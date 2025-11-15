@@ -423,3 +423,142 @@ def treasurer_list_expenses():
         )
 
     return jsonify(result)
+
+@treasurer_bp.route("/late-residents", methods=["GET"])
+def treasurer_late_residents():
+    """
+    Returns residents who are late in payments:
+    - Current month unpaid after day 5
+    - More than 3 months overdue
+    - Partially paid invoices
+    """
+    current_user, error = get_current_user_from_request(
+        allowed_roles=["TREASURER", "SUPERADMIN"]
+    )
+    if error:
+        message, status = error
+        return jsonify({"message": message}), status
+
+    today = date.today()
+    cutoff_day = 5  # بعد اليوم الخامس يعتبر متأخر
+
+    # 1) Get all invoices with unpaid part (amount - sum(payments) > 0)
+    inv_rows = (
+        db.session.query(
+            MaintenanceInvoice.id,
+            MaintenanceInvoice.user_id,
+            MaintenanceInvoice.year,
+            MaintenanceInvoice.month,
+            MaintenanceInvoice.amount,
+            func.coalesce(func.sum(Payment.amount), 0).label("paid_amount"),
+        )
+        .outerjoin(Payment, Payment.invoice_id == MaintenanceInvoice.id)
+        .group_by(MaintenanceInvoice.id)
+        .all()
+    )
+
+    per_user = {}
+
+    for row in inv_rows:
+        amount = float(row.amount)
+        paid = float(row.paid_amount or 0)
+        unpaid = amount - paid
+
+        if unpaid <= 0:
+            # fully paid, skip
+            continue
+
+        # months difference between invoice month and today
+        months_diff = (today.year - row.year) * 12 + (today.month - row.month)
+
+        is_current_month_late = (
+            row.year == today.year
+            and row.month == today.month
+            and today.day > cutoff_day
+            and unpaid > 0
+        )
+        has_3_plus = months_diff >= 3 and unpaid > 0
+        is_partial = paid > 0 and unpaid > 0
+
+        # If none of the conditions applies, we don't care about this invoice
+        if not (is_current_month_late or has_3_plus or is_partial):
+            continue
+
+        info = per_user.setdefault(
+            row.user_id,
+            {
+                "user_id": row.user_id,
+                "total_overdue_amount": 0.0,
+                "current_month_late": False,
+                "more_than_3_months": False,
+                "partial_payments": False,
+                "overdue_months": [],
+            },
+        )
+
+        info["total_overdue_amount"] += unpaid
+        if is_current_month_late:
+            info["current_month_late"] = True
+        if has_3_plus:
+            info["more_than_3_months"] = True
+        if is_partial:
+            info["partial_payments"] = True
+
+        info["overdue_months"].append(
+            {
+                "year": row.year,
+                "month": row.month,
+                "amount": amount,
+                "paid_amount": paid,
+                "unpaid_amount": unpaid,
+            }
+        )
+
+    if not per_user:
+        return jsonify(
+            {
+                "today": today.isoformat(),
+                "cutoff_day": cutoff_day,
+                "late_residents": [],
+            }
+        )
+
+    user_ids = list(per_user.keys())
+
+    # 2) Join with user + person details
+    users_rows = (
+        db.session.query(User, PersonDetails)
+        .outerjoin(PersonDetails, PersonDetails.user_id == User.id)
+        .filter(User.id.in_(user_ids))
+        .all()
+    )
+
+    result = []
+    for user, person in users_rows:
+        info = per_user[user.id]
+        result.append(
+            {
+                "user_id": user.id,
+                "username": user.username,
+                "full_name": person.full_name if person else user.username,
+                "building": person.building if person else None,
+                "floor": person.floor if person else None,
+                "apartment": person.apartment if person else None,
+                "phone": person.phone if person else None,
+                "status_flags": {
+                    "current_month_late": info["current_month_late"],
+                    "more_than_3_months": info["more_than_3_months"],
+                    "partial_payments": info["partial_payments"],
+                },
+                "total_overdue_amount": round(info["total_overdue_amount"], 2),
+                "overdue_months": info["overdue_months"],
+            }
+        )
+
+    return jsonify(
+        {
+            "today": today.isoformat(),
+            "cutoff_day": cutoff_day,
+            "late_residents": result,
+        }
+    )
