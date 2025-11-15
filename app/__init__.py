@@ -37,10 +37,12 @@ def create_app():
     from .auth.routes import auth_bp
     from .resident_routes import resident_bp 
     from .admin_routes import admin_bp 
+    from .treasurer_routes import treasurer_bp
 
     app.register_blueprint(main_bp)
     app.register_blueprint(auth_bp, url_prefix="/api/auth")
     app.register_blueprint(resident_bp, url_prefix="/api/resident")
     app.register_blueprint(admin_bp, url_prefix="/api/admin") 
+    app.register_blueprint(treasurer_bp, url_prefix="/api/treasurer")
 
     return app
