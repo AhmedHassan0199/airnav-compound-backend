@@ -178,3 +178,15 @@ class UnionLedgerEntry(db.Model):
     created_by_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
 
     created_by = db.relationship("User", backref="ledger_entries")
+
+class Expense(db.Model):
+    __tablename__ = "expenses"
+
+    id = db.Column(db.Integer, primary_key=True)
+    date = db.Column(db.Date, default=date.today, nullable=False)
+    amount = db.Column(db.Numeric(10, 2), nullable=False)
+    category = db.Column(db.String(100), nullable=True)
+    description = db.Column(db.String(255), nullable=False)
+
+    created_by_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    created_by = db.relationship("User", backref="expenses")

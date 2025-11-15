@@ -334,3 +334,95 @@ def treasurer_ledger_list():
         )
 
     return jsonify(result)
+
+@treasurer_bp.route("/expenses", methods=["POST"])
+def treasurer_create_expense():
+    """
+    Treasurer records a union expense.
+    Also writes a ledger entry (debit).
+    """
+    current_user, error = get_current_user_from_request(allowed_roles=["TREASURER", "SUPERADMIN"])
+    if error:
+        message, status = error
+        return jsonify({"message": message}), status
+
+    data = request.get_json() or {}
+    amount = data.get("amount")
+    description = data.get("description", "").strip()
+    category = data.get("category", "").strip() or None
+
+    if amount is None or not description:
+        return jsonify({"message": "amount and description are required"}), 400
+
+    try:
+        amount_val = float(amount)
+        if amount_val <= 0:
+            raise ValueError()
+    except Exception:
+        return jsonify({"message": "invalid amount"}), 400
+
+    exp = Expense(
+        amount=amount_val,
+        description=description,
+        category=category,
+        date=date.today(),
+        created_by_id=current_user.id,
+    )
+    db.session.add(exp)
+
+    # Ledger: expense decreases union balance (debit)
+    current_balance = get_union_balance()
+    new_balance = current_balance - amount_val
+
+    ledger_entry = UnionLedgerEntry(
+        date=date.today(),
+        description=f"مصروف: {description}",
+        debit=amount_val,
+        credit=0,
+        balance_after=new_balance,
+        entry_type="EXPENSE",
+        created_by_id=current_user.id,
+    )
+    db.session.add(ledger_entry)
+
+    db.session.commit()
+
+    return jsonify({"message": "expense recorded"}), 201
+
+@treasurer_bp.route("/expenses", methods=["GET"])
+def treasurer_list_expenses():
+    """
+    List recent expenses. Optional ?limit=
+    """
+    current_user, error = get_current_user_from_request(allowed_roles=["TREASURER", "SUPERADMIN"])
+    if error:
+        message, status = error
+        return jsonify({"message": message}), status
+
+    try:
+        limit = int(request.args.get("limit", 50))
+    except ValueError:
+        limit = 50
+
+    expenses = (
+        db.session.query(Expense, User)
+        .join(User, Expense.created_by_id == User.id)
+        .order_by(Expense.date.desc(), Expense.id.desc())
+        .limit(limit)
+        .all()
+    )
+
+    result = []
+    for exp, user in expenses:
+        result.append(
+            {
+                "id": exp.id,
+                "date": exp.date.isoformat(),
+                "amount": float(exp.amount),
+                "category": exp.category,
+                "description": exp.description,
+                "created_by": user.username,
+            }
+        )
+
+    return jsonify(result)
