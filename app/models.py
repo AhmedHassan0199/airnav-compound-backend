@@ -72,3 +72,52 @@ class MaintenanceInvoice(db.Model):
 
     def __repr__(self):
         return f"<Invoice {self.year}-{self.month} for user {self.user_id}: {self.status}>"
+
+class Payment(db.Model):
+    __tablename__ = "payments"
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    user_id = db.Column(
+        db.Integer,
+        db.ForeignKey("users.id"),
+        nullable=False,
+        index=True,
+    )
+    invoice_id = db.Column(
+        db.Integer,
+        db.ForeignKey("maintenance_invoices.id"),
+        nullable=False,
+        index=True,
+    )
+
+    amount = db.Column(db.Numeric(10, 2), nullable=False)
+    method = db.Column(db.String(20), nullable=False, default="CASH")
+    notes = db.Column(db.String(255), nullable=True)
+
+    collected_by_admin_id = db.Column(
+        db.Integer,
+        db.ForeignKey("users.id"),
+        nullable=False,
+        index=True,
+    )
+
+    created_at = db.Column(db.Date, default=date.today)
+
+    user = db.relationship(
+        "User",
+        foreign_keys=[user_id],
+        backref=db.backref("payments", lazy="dynamic"),
+    )
+    invoice = db.relationship(
+        "MaintenanceInvoice",
+        backref=db.backref("payments", lazy="dynamic"),
+    )
+    collected_by = db.relationship(
+        "User",
+        foreign_keys=[collected_by_admin_id],
+        backref=db.backref("collected_payments", lazy="dynamic"),
+    )
+
+    def __repr__(self):
+        return f"<Payment {self.amount} for invoice {self.invoice_id} by admin {self.collected_by_admin_id}>"
