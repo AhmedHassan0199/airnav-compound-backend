@@ -210,15 +210,6 @@ def treasurer_create_settlement():
 
 @treasurer_bp.route("/summary", methods=["GET"])
 def treasurer_summary():
-    """
-    Overall financial summary for the union:
-    - total collected (all time)
-    - total settled from admins to union
-    - current union balance
-    - today's collected
-    - this month's collected
-    - total invoices (paid / unpaid)
-    """
     current_user, error = get_current_user_from_request(allowed_roles=["TREASURER", "SUPERADMIN"])
     if error:
         message, status = error
@@ -227,24 +218,31 @@ def treasurer_summary():
     today = date.today()
     first_of_month = date(today.year, today.month, 1)
 
-    # Collected from residents by all admins
+    # إجمالي المبالغ المحصلة من السكان (عن طريق مسؤولي التحصيل)
     total_collected = (
         db.session.query(func.coalesce(func.sum(Payment.amount), 0))
         .scalar()
         or 0
     )
 
-    # Settled to union by admins
+    # إجمالي ما تم تسويته من مسؤولي التحصيل إلى الاتحاد
     total_settled = (
         db.session.query(func.coalesce(func.sum(Settlement.amount), 0))
         .scalar()
         or 0
     )
 
-    # Union balance = total_settled (simple model; can be adjusted later for other incomes)
-    union_balance = float(total_settled)
+    # إجمالي المصروفات
+    total_expenses = (
+        db.session.query(func.coalesce(func.sum(Expense.amount), 0))
+        .scalar()
+        or 0
+    )
 
-    # Today collected
+    # رصيد الاتحاد الحالي حسب دفتر القيود (الأصح)
+    union_balance = get_union_balance()
+
+    # تحصيل اليوم
     today_collected = (
         db.session.query(func.coalesce(func.sum(Payment.amount), 0))
         .filter(Payment.created_at == today)
@@ -252,7 +250,7 @@ def treasurer_summary():
         or 0
     )
 
-    # This month collected
+    # تحصيل هذا الشهر
     this_month_collected = (
         db.session.query(func.coalesce(func.sum(Payment.amount), 0))
         .filter(Payment.created_at >= first_of_month)
@@ -260,7 +258,6 @@ def treasurer_summary():
         or 0
     )
 
-    # Invoice stats
     total_invoices = db.session.query(func.count(MaintenanceInvoice.id)).scalar() or 0
     paid_invoices = (
         db.session.query(func.count(MaintenanceInvoice.id))
@@ -274,6 +271,7 @@ def treasurer_summary():
         {
             "total_collected": float(total_collected),
             "total_settled": float(total_settled),
+            "total_expenses": float(total_expenses),
             "union_balance": float(union_balance),
             "today_collected": float(today_collected),
             "this_month_collected": float(this_month_collected),
@@ -282,7 +280,6 @@ def treasurer_summary():
             "unpaid_invoices": int(unpaid_invoices),
         }
     )
-
 
 def get_union_balance():
     last_entry = (
