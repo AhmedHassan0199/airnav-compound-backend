@@ -1,5 +1,5 @@
 from flask import Blueprint, request, jsonify
-from app.extensions import db
+from app import db
 from app.models import NotificationSubscription
 from .auth.routes import get_current_user_from_request
 
