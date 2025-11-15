@@ -407,3 +407,67 @@ def admin_me_summary():
         }
     )
 
+VALID_ROLES = {"RESIDENT", "ADMIN", "TREASURER", "SUPERADMIN"}
+
+@admin_bp.route("/users", methods=["POST"])
+def superadmin_create_user():
+    """
+    SuperAdmin creates a new user (Admin / Treasurer / Resident / SuperAdmin).
+    """
+    current_user, error = get_current_user_from_request(allowed_roles=["SUPERADMIN"])
+    if error:
+        message, status = error
+        return jsonify({"message": message}), status
+
+    data = request.get_json() or {}
+
+    username = data.get("username", "").strip()
+    password = data.get("password", "").strip()
+    role = data.get("role", "").strip().upper()
+
+    full_name = data.get("full_name", "").strip() or None
+    building = data.get("building", "").strip() or None
+    floor = data.get("floor", "").strip() or None
+    apartment = data.get("apartment", "").strip() or None
+
+    if not username or not password or not role:
+        return jsonify({"message": "username, password and role are required"}), 400
+
+    if role not in VALID_ROLES:
+        return jsonify({"message": "invalid role"}), 400
+
+    # Check username uniqueness
+    existing = User.query.filter_by(username=username).first()
+    if existing:
+        return jsonify({"message": "username already exists"}), 400
+
+    # Create user
+    user = User(username=username, role=role)
+    user.set_password(password)
+    db.session.add(user)
+    db.session.flush()  # get user.id
+
+    # Optional person details
+    # For TREASURER / SUPERADMIN building/floor/apartment can be dummy or null
+    if any([full_name, building, floor, apartment]):
+        details = PersonDetails(
+            user_id=user.id,
+            full_name=full_name or username,
+            building=building or "",
+            floor=floor or "",
+            apartment=apartment or "",
+        )
+        db.session.add(details)
+
+    db.session.commit()
+
+    return jsonify(
+        {
+            "message": "user created",
+            "user": {
+                "id": user.id,
+                "username": user.username,
+                "role": user.role,
+            },
+        }
+    ), 201
