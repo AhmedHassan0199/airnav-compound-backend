@@ -3,6 +3,7 @@ from app import db
 from app.models import NotificationSubscription
 from .auth.routes import get_current_user_from_request
 from .fcm import send_push_v1
+import os
 
 notifications_bp = Blueprint("notifications", __name__)
 
