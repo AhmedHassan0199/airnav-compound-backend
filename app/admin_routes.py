@@ -172,7 +172,12 @@ def admin_collect_payment():
         return jsonify({"message": "invoice not found for this user"}), 404
 
     if invoice.status == "PAID":
-        return jsonify({"message": "invoice already paid"}), 400
+    return jsonify({"message": "invoice already paid"}), 400
+
+    if invoice.status == "PENDING_CONFIRMATION":
+        return jsonify({
+            "message": "لا يمكن تحصيل هذا الايصال نقداً لأنه يحتوي على عملية دفع إلكتروني قيد المراجعة."
+        }), 400
 
     # Update invoice
     invoice.status = "PAID"
@@ -312,9 +317,15 @@ def admin_delete_invoice(invoice_id: int):
     if not invoice:
         return jsonify({"message": "invoice not found"}), 404
 
-    # من باب الأمان: منمسحش فاتورة مدفوعة أو عليها Payments
+    # من باب الأمان: منمسحش فاتورة مدفوعة أو عليها Payments أو قيد تأكيد دفع إلكتروني
     if invoice.status == "PAID":
         return jsonify({"message": "cannot delete a PAID invoice"}), 400
+
+    if invoice.status == "PENDING_CONFIRMATION":
+        return jsonify({
+            "message": "cannot delete invoice while an online payment is pending confirmation"
+        }), 400
+
 
     payments_count = Payment.query.filter_by(invoice_id=invoice.id).count()
     if payments_count > 0:
