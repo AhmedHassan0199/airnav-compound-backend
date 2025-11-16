@@ -25,6 +25,7 @@ def create_initial_invoices_for_resident(user: User, monthly_amount: Decimal = D
             month=month,
             amount=monthly_amount,
             status="UNPAID",
+            due_date=date.today()
         )
         db.session.add(invoice)
 
