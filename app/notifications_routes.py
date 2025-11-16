@@ -69,3 +69,26 @@ def send_test_notification():
     return jsonify({"status": status_code, "response": message}), (
         200 if status_code == 200 else 500
     )
+
+@notifications_bp.route("/status", methods=["GET"])
+def notification_status():
+    """
+    Returns whether the current user has any notification subscriptions.
+    Used by the frontend to show if notifications are already enabled.
+    """
+    current_user, error = get_current_user_from_request()
+    if error:
+        msg, status = error
+        return jsonify({"message": msg}), status
+
+    count = (
+        NotificationSubscription.query
+        .filter_by(user_id=current_user.id)
+        .count()
+    )
+
+    return jsonify({
+        "has_subscription": count > 0,
+        "subscriptions_count": count,
+    }), 200
+

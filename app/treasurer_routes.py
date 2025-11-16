@@ -3,8 +3,9 @@ from flask import Blueprint, jsonify, request
 from sqlalchemy import func
 
 from app import db
-from app.models import User, PersonDetails, Payment, Settlement, MaintenanceInvoice, UnionLedgerEntry, Expense
+from app.models import User, PersonDetails, Payment, Settlement, MaintenanceInvoice, UnionLedgerEntry, Expense, NotificationSubscription
 from .auth.routes import get_current_user_from_request
+from app.fcm import send_push_v1
 
 treasurer_bp = Blueprint("treasurer", __name__)
 
@@ -424,25 +425,18 @@ def treasurer_list_expenses():
 
     return jsonify(result)
 
-@treasurer_bp.route("/late-residents", methods=["GET"])
-def treasurer_late_residents():
-    """
-    Returns residents who are late in payments:
-    - Current month unpaid after day 5
-    - More than 3 months overdue
-    - Partially paid invoices
-    """
-    current_user, error = get_current_user_from_request(
-        allowed_roles=["TREASURER", "SUPERADMIN"]
-    )
-    if error:
-        message, status = error
-        return jsonify({"message": message}), status
 
+def _get_late_residents_data():
+    """
+    Core logic to compute late residents:
+    - current month unpaid after day 5
+    - ≥3 months overdue
+    - partial payments
+    Returns dict: { "today": ..., "cutoff_day": ..., "late_residents": [...] }
+    """
     today = date.today()
-    cutoff_day = 5  # بعد اليوم الخامس يعتبر متأخر
+    cutoff_day = 5
 
-    # 1) Get all invoices with unpaid part (amount - sum(payments) > 0)
     inv_rows = (
         db.session.query(
             MaintenanceInvoice.id,
@@ -465,10 +459,8 @@ def treasurer_late_residents():
         unpaid = amount - paid
 
         if unpaid <= 0:
-            # fully paid, skip
             continue
 
-        # months difference between invoice month and today
         months_diff = (today.year - row.year) * 12 + (today.month - row.month)
 
         is_current_month_late = (
@@ -480,7 +472,6 @@ def treasurer_late_residents():
         has_3_plus = months_diff >= 3 and unpaid > 0
         is_partial = paid > 0 and unpaid > 0
 
-        # If none of the conditions applies, we don't care about this invoice
         if not (is_current_month_late or has_3_plus or is_partial):
             continue
 
@@ -515,17 +506,14 @@ def treasurer_late_residents():
         )
 
     if not per_user:
-        return jsonify(
-            {
-                "today": today.isoformat(),
-                "cutoff_day": cutoff_day,
-                "late_residents": [],
-            }
-        )
+        return {
+            "today": today.isoformat(),
+            "cutoff_day": cutoff_day,
+            "late_residents": [],
+        }
 
     user_ids = list(per_user.keys())
 
-    # 2) Join with user + person details
     users_rows = (
         db.session.query(User, PersonDetails)
         .outerjoin(PersonDetails, PersonDetails.user_id == User.id)
@@ -555,10 +543,106 @@ def treasurer_late_residents():
             }
         )
 
+    return {
+        "today": today.isoformat(),
+        "cutoff_day": cutoff_day,
+        "late_residents": result,
+    }
+
+@treasurer_bp.route("/late-residents", methods=["GET"])
+def treasurer_late_residents():
+    current_user, error = get_current_user_from_request(
+        allowed_roles=["TREASURER", "SUPERADMIN"]
+    )
+    if error:
+        msg, status = error
+        return jsonify({"message": msg}), status
+
+    data = _get_late_residents_data()
+    return jsonify(data), 200
+
+@treasurer_bp.route("/late-residents/notify-push", methods=["POST"])
+def treasurer_notify_late_residents_push():
+    """
+    Sends a push notification to all late residents who have a notification subscription.
+    """
+    current_user, error = get_current_user_from_request(
+        allowed_roles=["TREASURER", "SUPERADMIN"]
+    )
+    if error:
+        msg, status = error
+        return jsonify({"message": msg}), status
+
+    data = _get_late_residents_data()
+    late_residents = data["late_residents"]
+    if not late_residents:
+        return jsonify({"message": "لا يوجد سكان متأخرون حالياً.", "count": 0}), 200
+
+    project_id = os.getenv("FIREBASE_PROJECT_ID")
+    if not project_id:
+        return jsonify({"message": "FIREBASE_PROJECT_ID not configured"}), 500
+
+    total_targets = 0
+    total_sent = 0
+    total_failed = 0
+    details = []
+
+    for r in late_residents:
+        user_id = r["user_id"]
+        subs = NotificationSubscription.query.filter_by(user_id=user_id).all()
+        if not subs:
+            details.append(
+                {
+                    "user_id": user_id,
+                    "full_name": r["full_name"],
+                    "status": "no_subscription",
+                }
+            )
+            continue
+
+        total_targets += 1
+
+        title = "تنبيه سداد صيانة"
+        body = (
+            f"عزيزي {r['full_name']}, يوجد مديونية صيانة قدرها "
+            f"{r['total_overdue_amount']:.2f} جنيه على وحدتكم. "
+            "برجاء السداد أو التواصل مع أمين الصندوق."
+        )
+
+        success_for_user = False
+        for sub in subs:
+            status_code, resp_text = send_push_v1(
+                project_id, sub.token, title, body
+            )
+            if status_code == 200:
+                success_for_user = True
+                break  # one success per user is enough
+
+        if success_for_user:
+            total_sent += 1
+            details.append(
+                {
+                    "user_id": user_id,
+                    "full_name": r["full_name"],
+                    "status": "sent",
+                }
+            )
+        else:
+            total_failed += 1
+            details.append(
+                {
+                    "user_id": user_id,
+                    "full_name": r["full_name"],
+                    "status": "failed",
+                }
+            )
+
     return jsonify(
         {
-            "today": today.isoformat(),
-            "cutoff_day": cutoff_day,
-            "late_residents": result,
+            "total_late_residents": len(late_residents),
+            "total_targets": total_targets,  # with at least one subscription
+            "total_sent": total_sent,
+            "total_failed": total_failed,
+            "details": details,
         }
-    )
+    ), 200
