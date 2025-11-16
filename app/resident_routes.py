@@ -1,5 +1,5 @@
 from flask import Blueprint, jsonify, send_file, render_template, current_app
-from app.models import PersonDetails, MaintenanceInvoice, User
+from app.models import PersonDetails, MaintenanceInvoice, User, OnlinePayment
 from .auth.routes import get_current_user_from_request
 from io import BytesIO
 # Try importing WeasyPrint; on Windows this may fail
@@ -134,4 +134,83 @@ def resident_invoice_pdf(invoice_id: int):
         download_name=filename,
         mimetype="application/pdf",
     )
+
+@resident_bp.route("/invoices/<int:invoice_id>/instapay", methods=["POST"])
+def submit_instapay_payment(invoice_id):
+    """
+    Resident declares an InstaPay payment for a specific invoice.
+    This does NOT auto-mark as PAID; it sets invoice status to PENDING_CONFIRMATION
+    and creates an OnlinePayment record with status PENDING.
+    """
+    current_user, error = get_current_user_from_request(allowed_roles=["RESIDENT"])
+    if error:
+        msg, status = error
+        return jsonify({"message": msg}), status
+
+    data = request.get_json() or {}
+    transaction_ref = data.get("transaction_ref")
+    sender_id = data.get("instapay_sender_id")  # mobile or InstaPay ID
+    amount = data.get("amount")
+
+    if not transaction_ref or not sender_id or not amount:
+        return (
+            jsonify(
+                {
+                    "message": "برجاء إدخال رقم العملية، وحساب/موبايل إنستا باي، والمبلغ."
+                }
+            ),
+            400,
+        )
+
+    try:
+        amount = float(amount)
+    except ValueError:
+        return jsonify({"message": "المبلغ غير صالح."}), 400
+
+    if amount <= 0:
+        return jsonify({"message": "المبلغ يجب أن يكون أكبر من صفر."}), 400
+
+    invoice = MaintenanceInvoice.query.get(invoice_id)
+    if not invoice:
+        return jsonify({"message": "الفاتورة غير موجودة."}), 404
+
+    # Check invoice belongs to this resident
+    if invoice.user_id != current_user.id:
+        return jsonify({"message": "لا يمكنك تسجيل دفع لفاتورة لا تخص حسابك."}), 403
+
+    # Check not already fully paid
+    if invoice.status == "PAID":
+        return jsonify({"message": "هذه الفاتورة مسددة بالفعل."}), 400
+
+    # Optional: prevent multiple pending records for the same invoice
+    existing_pending = OnlinePayment.query.filter_by(
+        invoice_id=invoice.id, status="PENDING"
+    ).first()
+    if existing_pending:
+        return (
+            jsonify(
+                {
+                    "message": "يوجد طلب دفع إلكتروني قيد المراجعة بالفعل لهذه الفاتورة."
+                }
+            ),
+            400,
+        )
+
+    # Create OnlinePayment
+    op = OnlinePayment(
+        invoice_id=invoice.id,
+        resident_id=current_user.id,
+        amount=amount,
+        instapay_sender_id=sender_id,
+        transaction_ref=transaction_ref,
+        status="PENDING",
+        created_at=datetime.utcnow(),
+    )
+    db.session.add(op)
+
+    # Set invoice status to PENDING_CONFIRMATION
+    invoice.status = "PENDING_CONFIRMATION"
+    db.session.commit()
+
+    return jsonify({"message": "تم تسجيل عملية إنستا باي وجاري مراجعتها.", "id": op.id}), 201
 
