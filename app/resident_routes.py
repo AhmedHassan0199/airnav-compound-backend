@@ -2,6 +2,7 @@ from flask import Blueprint, jsonify, send_file, render_template, current_app
 from app.models import PersonDetails, MaintenanceInvoice, User, OnlinePayment
 from .auth.routes import get_current_user_from_request
 from io import BytesIO
+import request
 # Try importing WeasyPrint; on Windows this may fail
 try:
     from weasyprint import HTML
