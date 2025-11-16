@@ -4,6 +4,7 @@ from .auth.routes import get_current_user_from_request
 from datetime import datetime
 from io import BytesIO
 import requests
+from app import db
 # Try importing WeasyPrint; on Windows this may fail
 try:
     from weasyprint import HTML
