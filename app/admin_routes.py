@@ -1,12 +1,32 @@
 from datetime import date
 from flask import Blueprint, jsonify, request
 from sqlalchemy import or_, func
+from decimal import Decimal
 
 from app import db
 from app.models import User, PersonDetails, MaintenanceInvoice, Payment, Settlement
 from .auth.routes import get_current_user_from_request
 
 admin_bp = Blueprint("admin", __name__)
+
+def create_initial_invoices_for_resident(user: User, monthly_amount: Decimal = Decimal("200.00")):
+    """
+    Create invoices for the new resident from current month until end of year.
+    Example: if today is 2025-11-xx -> create invoices for Nov & Dec of 2025.
+    """
+    today = date.today()
+    current_year = today.year
+    start_month = today.month
+
+    for month in range(start_month, 13):  # 13 so it includes 12
+        invoice = MaintenanceInvoice(
+            user_id=user.id,
+            year=current_year,
+            month=month,
+            amount=monthly_amount,
+            status="UNPAID",
+        )
+        db.session.add(invoice)
 
 
 @admin_bp.route("/residents", methods=["GET"])
@@ -461,6 +481,10 @@ def superadmin_create_user():
         )
         db.session.add(details)
 
+    # ✅ Only for residents: create invoices
+    if role == "RESIDENT":
+        create_initial_invoices_for_resident(user)
+    
     db.session.commit()
 
     return jsonify(
