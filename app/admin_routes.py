@@ -172,7 +172,7 @@ def admin_collect_payment():
         return jsonify({"message": "invoice not found for this user"}), 404
 
     if invoice.status == "PAID":
-    return jsonify({"message": "invoice already paid"}), 400
+        return jsonify({"message": "invoice already paid"}), 400
 
     if invoice.status == "PENDING_CONFIRMATION":
         return jsonify({
