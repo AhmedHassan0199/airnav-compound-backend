@@ -2,6 +2,7 @@ from flask import Blueprint, request, jsonify
 from app import db
 from app.models import NotificationSubscription
 from .auth.routes import get_current_user_from_request
+from .fcm import send_push_v1
 
 notifications_bp = Blueprint("notifications", __name__)
 
@@ -36,3 +37,34 @@ def register_notification():
     db.session.commit()
 
     return jsonify({"message": "notification token registered"}), 200
+
+
+@notifications_bp.route("/test", methods=["POST"])
+def send_test_notification():
+    current_user, error = get_current_user_from_request()
+    if error:
+        msg, status = error
+        return jsonify({"message": msg}), status
+
+    sub = (
+        NotificationSubscription.query
+        .filter_by(user_id=current_user.id)
+        .order_by(NotificationSubscription.updated_at.desc())
+        .first()
+    )
+
+    if not sub:
+        return jsonify({"message": "No push token found for this user"}), 404
+
+    project_id = os.getenv("FIREBASE_PROJECT_ID")
+
+    status_code, message = send_push_v1(
+        project_id,
+        sub.token,
+        "📢 إشعار تجريبي",
+        "هذه تجربة من إشعارات اتحاد الشاغلين 👌"
+    )
+
+    return jsonify({"status": status_code, "response": message}), (
+        200 if status_code == 200 else 500
+    )
