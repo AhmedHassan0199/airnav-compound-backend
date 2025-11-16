@@ -17,3 +17,5 @@ migrations/**/__pycache__/
 # OS
 .DS_Store
 Thumbs.db
+
+airnavcompound-1c9e45a9528c.json
