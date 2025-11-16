@@ -59,7 +59,7 @@ class MaintenanceInvoice(db.Model):
     year = db.Column(db.Integer, nullable=False)
     month = db.Column(db.Integer, nullable=False)  # 1–12
     amount = db.Column(db.Numeric(10, 2), nullable=False)
-    status = db.Column(db.String(20), nullable=False, default="PENDING")
+    status = db.Column(db.String(20), nullable=False, default="UNPAID")
     due_date = db.Column(db.Date, nullable=False)
     paid_date = db.Column(db.Date, nullable=True)
     notes = db.Column(db.String(255), nullable=True)
@@ -204,3 +204,35 @@ class NotificationSubscription(db.Model):
     )
 
     user = db.relationship("User", backref="notification_subscriptions")
+
+class OnlinePayment(db.Model):
+    __tablename__ = "online_payments"
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    invoice_id = db.Column(
+        db.Integer, db.ForeignKey("maintenance_invoices.id"), nullable=False
+    )
+    resident_id = db.Column(
+        db.Integer, db.ForeignKey("users.id"), nullable=False
+    )
+
+    amount = db.Column(db.Numeric(10, 2), nullable=False)
+    instapay_sender_id = db.Column(db.String(100), nullable=False)
+    transaction_ref = db.Column(db.String(100), nullable=False)
+
+    # PENDING / APPROVED / REJECTED
+    status = db.Column(db.String(20), nullable=False, default="PENDING")
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    confirmed_at = db.Column(db.DateTime)
+    confirmed_by_admin_id = db.Column(db.Integer, db.ForeignKey("users.id"))
+    notes = db.Column(db.Text)
+
+    invoice = db.relationship("MaintenanceInvoice", backref="online_payments")
+    resident = db.relationship(
+        "User", foreign_keys=[resident_id], backref="online_payments"
+    )
+    confirmed_by_admin = db.relationship(
+        "User", foreign_keys=[confirmed_by_admin_id]
+    )
