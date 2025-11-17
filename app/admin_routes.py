@@ -44,7 +44,7 @@ def admin_search_residents():
     Only ADMIN and SUPERADMIN can use this.
     """
     current_user, error = get_current_user_from_request(
-        allowed_roles=["ADMIN", "SUPERADMIN"]
+        allowed_roles=["ADMIN", "SUPERADMIN","ONLINE_ADMIN"]
     )
     if error:
         message, status = error
@@ -103,7 +103,7 @@ def admin_resident_invoices(user_id: int):
     Get all invoices for a specific resident (for Admin view).
     """
     current_user, error = get_current_user_from_request(
-        allowed_roles=["ADMIN", "SUPERADMIN"]
+        allowed_roles=["ADMIN", "SUPERADMIN","ONLINE_ADMIN"]
     )
     if error:
         message, status = error
@@ -147,7 +147,7 @@ def admin_collect_payment():
     Admin marks an invoice as PAID and creates a Payment record.
     """
     current_user, error = get_current_user_from_request(
-        allowed_roles=["ADMIN"]
+        allowed_roles=["ADMIN","ONLINE_ADMIN"]
     )
     if error:
         message, status = error
@@ -229,7 +229,7 @@ def admin_create_invoice():
     """
     Admin creates a new maintenance invoice for a resident.
     """
-    current_user, error = get_current_user_from_request(allowed_roles=["ADMIN"])
+    current_user, error = get_current_user_from_request(allowed_roles=["ADMIN","ONLINE_ADMIN"])
     if error:
         message, status = error
         return jsonify({"message": message}), status
@@ -315,7 +315,7 @@ def admin_delete_invoice(invoice_id: int):
     """
     Admin deletes an invoice (only if not PAID and has no payments).
     """
-    current_user, error = get_current_user_from_request(allowed_roles=["ADMIN"])
+    current_user, error = get_current_user_from_request(allowed_roles=["ADMIN","ONLINE_ADMIN"])
     if error:
         message, status = error
         return jsonify({"message": message}), status
@@ -354,7 +354,7 @@ def admin_me_summary():
     - outstanding amount
     - recent payments
     """
-    current_user, error = get_current_user_from_request(allowed_roles=["ADMIN"])
+    current_user, error = get_current_user_from_request(allowed_roles=["ADMIN","ONLINE_ADMIN"])
     if error:
         message, status = error
         return jsonify({"message": message}), status
