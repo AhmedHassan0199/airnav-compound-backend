@@ -446,7 +446,7 @@ def admin_me_summary():
         }
     )
 
-VALID_ROLES = {"RESIDENT", "ADMIN", "TREASURER", "SUPERADMIN"}
+VALID_ROLES = {"RESIDENT", "ADMIN", "TREASURER", "SUPERADMIN","ONLINE_ADMIN"}
 
 @admin_bp.route("/users", methods=["POST"])
 def superadmin_create_user():
