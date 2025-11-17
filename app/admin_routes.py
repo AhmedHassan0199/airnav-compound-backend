@@ -522,7 +522,7 @@ def admin_list_pending_online_payments():
     """
     List all pending online payments (Instapay) for admins to review.
     """
-    current_user, error = get_current_user_from_request(allowed_roles=["ADMIN"])
+    current_user, error = get_current_user_from_request(allowed_roles=["ONLINE_ADMIN"])
     if error:
         message, status = error
         return jsonify({"message": message}), status
@@ -571,7 +571,7 @@ def admin_approve_online_payment(payment_id: int):
     - Mark invoice as PAID
     - Create Payment record with method='ONLINE'
     """
-    current_user, error = get_current_user_from_request(allowed_roles=["ADMIN"])
+    current_user, error = get_current_user_from_request(allowed_roles=["ONLINE_ADMIN"])
     if error:
         message, status = error
         return jsonify({"message": message}), status
@@ -628,7 +628,7 @@ def admin_reject_online_payment(payment_id: int):
     - Mark online payment as REJECTED
     - Set invoice back to UNPAID if it is in PENDING_CONFIRMATION
     """
-    current_user, error = get_current_user_from_request(allowed_roles=["ADMIN"])
+    current_user, error = get_current_user_from_request(allowed_roles=["ONLINE_ADMIN"])
     if error:
         message, status = error
         return jsonify({"message": message}), status
