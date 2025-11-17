@@ -4,7 +4,14 @@ from sqlalchemy import or_, func
 from decimal import Decimal
 
 from app import db
-from app.models import User, PersonDetails, MaintenanceInvoice, Payment, Settlement
+from app.models import (
+    User,
+    PersonDetails,
+    MaintenanceInvoice,
+    Payment,
+    Settlement,
+    OnlinePayment,
+)
 from .auth.routes import get_current_user_from_request
 
 admin_bp = Blueprint("admin", __name__)
@@ -509,3 +516,147 @@ def superadmin_create_user():
             },
         }
     ), 201
+
+@admin_bp.route("/online_payments/pending", methods=["GET"])
+def admin_list_pending_online_payments():
+    """
+    List all pending online payments (Instapay) for admins to review.
+    """
+    current_user, error = get_current_user_from_request(allowed_roles=["ADMIN"])
+    if error:
+        message, status = error
+        return jsonify({"message": message}), status
+
+    q = (
+        OnlinePayment.query
+        .filter(OnlinePayment.status == "PENDING")
+        .join(MaintenanceInvoice, OnlinePayment.invoice_id == MaintenanceInvoice.id)
+        .join(User, OnlinePayment.resident_id == User.id)
+        .outerjoin(PersonDetails, PersonDetails.user_id == User.id)
+        .order_by(OnlinePayment.created_at.asc())
+        .all()
+    )
+
+    result = []
+    for op in q:
+        inv = op.invoice
+        resident = op.resident
+        person = resident.person_details
+
+        result.append({
+            "id": op.id,
+            "invoice_id": inv.id,
+            "invoice_status": inv.status,
+            "year": inv.year,
+            "month": inv.month,
+            "amount": float(op.amount),
+            "resident_id": resident.id,
+            "resident_username": resident.username,
+            "resident_name": person.full_name if person else None,
+            "building": person.building if person else None,
+            "floor": person.floor if person else None,
+            "apartment": person.apartment if person else None,
+            "instapay_sender_id": op.instapay_sender_id,
+            "transaction_ref": op.transaction_ref,
+            "created_at": op.created_at.isoformat(),
+        })
+
+    return jsonify(result), 200
+
+@admin_bp.route("/online_payments/<int:payment_id>/approve", methods=["POST"])
+def admin_approve_online_payment(payment_id: int):
+    """
+    Approve an online Instapay payment:
+    - Mark online payment as APPROVED
+    - Mark invoice as PAID
+    - Create Payment record with method='ONLINE'
+    """
+    current_user, error = get_current_user_from_request(allowed_roles=["ADMIN"])
+    if error:
+        message, status = error
+        return jsonify({"message": message}), status
+
+    data = request.get_json() or {}
+    extra_notes = data.get("notes")
+
+    op = OnlinePayment.query.get(payment_id)
+    if not op:
+        return jsonify({"message": "online payment not found"}), 404
+
+    if op.status != "PENDING":
+        return jsonify({"message": "online payment is not pending"}), 400
+
+    invoice = op.invoice
+    if invoice.status == "PAID":
+        return jsonify({"message": "invoice already paid"}), 400
+
+    # Mark invoice as PAID
+    invoice.status = "PAID"
+    invoice.paid_date = date.today()
+
+    # Create Payment record for this online operation
+    base_note = f"Instapay TX {op.transaction_ref} from {op.instapay_sender_id}"
+    full_note = base_note
+    if extra_notes:
+        full_note = f"{base_note} - {extra_notes}"
+
+    payment = Payment(
+        user_id=invoice.user_id,
+        invoice_id=invoice.id,
+        amount=op.amount,
+        method="ONLINE",
+        notes=full_note,
+        collected_by_admin_id=current_user.id,
+    )
+
+    # Update OnlinePayment
+    op.status = "APPROVED"
+    op.confirmed_at = datetime.utcnow()
+    op.confirmed_by_admin_id = current_user.id
+    if extra_notes:
+        op.notes = extra_notes
+
+    db.session.add(payment)
+    db.session.commit()
+
+    return jsonify({"message": "online payment approved"}), 200
+
+@admin_bp.route("/online_payments/<int:payment_id>/reject", methods=["POST"])
+def admin_reject_online_payment(payment_id: int):
+    """
+    Reject an online Instapay payment:
+    - Mark online payment as REJECTED
+    - Set invoice back to UNPAID if it is in PENDING_CONFIRMATION
+    """
+    current_user, error = get_current_user_from_request(allowed_roles=["ADMIN"])
+    if error:
+        message, status = error
+        return jsonify({"message": message}), status
+
+    data = request.get_json() or {}
+    extra_notes = data.get("notes")
+
+    op = OnlinePayment.query.get(payment_id)
+    if not op:
+        return jsonify({"message": "online payment not found"}), 404
+
+    if op.status != "PENDING":
+        return jsonify({"message": "online payment is not pending"}), 400
+
+    invoice = op.invoice
+
+    # لو الفاتورة لسه في حالة PENDING_CONFIRMATION نرجعها UNPAID
+    if invoice.status == "PENDING_CONFIRMATION":
+        invoice.status = "UNPAID"
+        invoice.paid_date = None
+
+    op.status = "REJECTED"
+    op.confirmed_at = datetime.utcnow()
+    op.confirmed_by_admin_id = current_user.id
+    if extra_notes:
+        op.notes = extra_notes
+
+    db.session.commit()
+
+    return jsonify({"message": "online payment rejected"}), 200
+
