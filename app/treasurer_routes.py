@@ -71,6 +71,7 @@ def treasurer_list_admins():
                 "id": admin.id,
                 "username": admin.username,
                 "full_name": details.full_name if details else admin.username,
+                "role": admin.role,
                 "summary": summary,
             }
         )
@@ -132,6 +133,7 @@ def treasurer_admin_details(admin_id: int):
                 "id": admin.id,
                 "username": admin.username,
                 "full_name": details.full_name if details else admin.username,
+                "role": admin.role,
             },
             "summary": summary,
             "recent_settlements": recent_list,
