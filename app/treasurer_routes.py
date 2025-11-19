@@ -1,6 +1,6 @@
 from datetime import date, datetime
 from flask import Blueprint, jsonify, request
-from sqlalchemy import func
+from sqlalchemy import func,or_
 import os
 
 from app import db
@@ -59,7 +59,7 @@ def treasurer_list_admins():
         message, status = error
         return jsonify({"message": message}), status
 
-    admins = User.query.filter_by(role="ADMIN").all()
+    admins = (User.query.filter(or_(User.role == "ADMIN", User.role == "ONLINE_ADMIN")).all())
 
     results = []
     for admin in admins:
@@ -90,7 +90,14 @@ def treasurer_admin_details(admin_id: int):
         message, status = error
         return jsonify({"message": message}), status
 
-    admin = User.query.filter_by(id=admin_id, role="ADMIN").first()
+    admin = (
+        User.query
+        .filter(
+            User.id == admin_id,
+            or_(User.role == "ADMIN", User.role == "ONLINE_ADMIN")
+        )
+        .first()
+    )
     if not admin:
         return jsonify({"message": "admin not found"}), 404
 
@@ -151,7 +158,14 @@ def treasurer_create_settlement():
     if not admin_id or amount is None:
         return jsonify({"message": "admin_id and amount are required"}), 400
 
-    admin = User.query.filter_by(id=admin_id, role="ADMIN").first()
+    admin = (
+        User.query
+        .filter(
+            User.id == admin_id,
+            or_(User.role == "ADMIN", User.role == "ONLINE_ADMIN")
+        )
+        .first()
+    )
     if not admin:
         return jsonify({"message": "admin not found"}), 404
 
