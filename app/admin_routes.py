@@ -526,6 +526,48 @@ def superadmin_create_user():
     if existing:
         return jsonify({"message": "username already exists"}), 400
 
+    # ✅ For RESIDENT only: enforce unique (building, floor, apartment) among RESIDENTS
+    if role == "RESIDENT":
+        # Require full unit info
+        if not (building and floor and apartment):
+            return (
+                jsonify(
+                    {
+                        "message": (
+                            "For RESIDENT users, building, floor and apartment "
+                            "are required and must be unique."
+                        )
+                    }
+                ),
+                400,
+            )
+
+        # Check if another RESIDENT already has this exact unit
+        existing_unit = (
+            db.session.query(PersonDetails)
+            .join(User, PersonDetails.user_id == User.id)
+            .filter(
+                User.role == "RESIDENT",
+                PersonDetails.building == building,
+                PersonDetails.floor == floor,
+                PersonDetails.apartment == apartment,
+            )
+            .first()
+        )
+
+        if existing_unit:
+            return (
+                jsonify(
+                    {
+                        "message": (
+                            "There is already a RESIDENT assigned to this unit "
+                            f"(B{building} - F{floor} - A{apartment})."
+                        )
+                    }
+                ),
+                400,
+            )
+
     # Create user
     user = User(username=username, role=role)
     user.set_password(password)
