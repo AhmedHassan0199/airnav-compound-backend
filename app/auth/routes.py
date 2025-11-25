@@ -4,7 +4,7 @@ from jwt import ExpiredSignatureError, InvalidTokenError
 import jwt
 
 from app import db
-from app.models import User
+from app.models import User, PersonDetails
 from app.config import Config
 
 auth_bp = Blueprint("auth", __name__)
@@ -56,27 +56,76 @@ def register():
 
 @auth_bp.route("/login", methods=["POST"])
 def login():
+    """
+    Login endpoint with two modes:
+
+    1) Staff (ADMIN / TREASURER / SUPERADMIN / ONLINE_ADMIN):
+       - Send: { "username": "...", "password": "..." }
+
+    2) Residents:
+       - Send: { "building": "...", "floor": "...", "apartment": "...", "password": "..." }
+       - We look up a RESIDENT user whose PersonDetails matches that unit.
+    """
     data = request.get_json() or {}
-    username = data.get("username")
+
+    username = (data.get("username") or "").strip()
     password = data.get("password")
 
-    if not username or not password:
-        return jsonify({"message": "username and password required"}), 400
+    building = (data.get("building") or "").strip()
+    floor = (data.get("floor") or "").strip()
+    apartment = (data.get("apartment") or "").strip()
 
-    user = User.query.filter_by(username=username).first()
+    if not password:
+        return jsonify({"message": "password is required"}), 400
+
+    user = None
+
+    # Mode 1: username + password (for staff and backward compatibility)
+    if username:
+        user = User.query.filter_by(username=username).first()
+
+    # Mode 2: building/floor/apartment + password (for RESIDENT accounts)
+    elif building and floor and apartment:
+        details = (
+            db.session.query(PersonDetails)
+            .join(User, PersonDetails.user_id == User.id)
+            .filter(
+                User.role == "RESIDENT",
+                PersonDetails.building == building,
+                PersonDetails.floor == floor,
+                PersonDetails.apartment == apartment,
+            )
+            .first()
+        )
+
+        if details:
+            user = details.user
+
+    else:
+        return jsonify(
+            {
+                "message": (
+                    "Either (username + password) or "
+                    "(building + floor + apartment + password) is required"
+                )
+            }
+        ), 400
+
     if not user or not user.check_password(password):
         return jsonify({"message": "invalid credentials"}), 401
 
     token = create_token(user)
 
-    return jsonify({
-        "access_token": token,
-        "user": {
-            "id": user.id,
-            "username": user.username,
-            "role": user.role,
+    return jsonify(
+        {
+            "access_token": token,
+            "user": {
+                "id": user.id,
+                "username": user.username,
+                "role": user.role,
+            },
         }
-    })
+    )
 
 @auth_bp.route("/me", methods=["GET"])
 def me():
