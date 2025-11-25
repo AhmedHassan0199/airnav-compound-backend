@@ -276,14 +276,27 @@ def treasurer_summary():
         or 0
     )
 
-    total_invoices = db.session.query(func.count(MaintenanceInvoice.id)).scalar() or 0
-    paid_invoices = (
+    # Only consider invoices that should already be due
+    # (exclude future months from the stats)
+    total_invoices = (
         db.session.query(func.count(MaintenanceInvoice.id))
-        .filter(MaintenanceInvoice.status == "PAID")
+        .filter(MaintenanceInvoice.due_date <= today)
         .scalar()
         or 0
     )
+
+    paid_invoices = (
+        db.session.query(func.count(MaintenanceInvoice.id))
+        .filter(
+            MaintenanceInvoice.status == "PAID",
+            MaintenanceInvoice.due_date <= today,
+        )
+        .scalar()
+        or 0
+    )
+
     unpaid_invoices = total_invoices - paid_invoices
+
 
     return jsonify(
         {
