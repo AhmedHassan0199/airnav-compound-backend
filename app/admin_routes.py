@@ -11,10 +11,16 @@ from app.models import (
     Payment,
     Settlement,
     OnlinePayment,
+    AdminBuilding,
 )
 from .auth.routes import get_current_user_from_request
 
 admin_bp = Blueprint("admin", __name__)
+
+def get_admin_allowed_buildings(admin_id: int):
+    rows = AdminBuilding.query.filter_by(admin_id=admin_id).all()
+    return [r.building for r in rows]
+
 
 def create_initial_invoices_for_resident(user: User, monthly_amount: Decimal = Decimal("200.00")):
     """
@@ -52,12 +58,17 @@ def admin_search_residents():
 
     query = request.args.get("query", "", type=str).strip()
 
-    # Base query: only residents for now
+    # Base query
     q = (
         db.session.query(User, PersonDetails)
         .join(PersonDetails, PersonDetails.user_id == User.id)
         .filter(User.role == "RESIDENT")
     )
+
+    # Restrict for ADMIN users
+    if current_user.role == "ADMIN":
+        allowed = get_admin_allowed_buildings(current_user.id)
+        q = q.filter(PersonDetails.building.in_(allowed))
 
     if query:
         like = f"%{query}%"
@@ -110,6 +121,14 @@ def admin_resident_invoices(user_id: int):
         return jsonify({"message": message}), status
 
     resident = User.query.filter_by(id=user_id, role="RESIDENT").first()
+
+    # If admin, make sure resident is in allowed buildings
+    if current_user.role == "ADMIN":
+        details = resident.person_details
+        allowed = get_admin_allowed_buildings(current_user.id)
+        if details and details.building not in allowed:
+            return jsonify({"message": "not allowed: resident outside your buildings"}), 403
+
     if not resident:
         return jsonify({"message": "resident not found"}), 404
 
@@ -175,6 +194,15 @@ def admin_collect_payment():
         .filter_by(id=invoice_id, user_id=user_id)
         .first()
     )
+    
+    # Restrict admin access by building
+    if current_user.role == "ADMIN":
+        resident = User.query.get(user_id)
+        details = resident.person_details
+        allowed = get_admin_allowed_buildings(current_user.id)
+        if details and details.building not in allowed:
+            return jsonify({"message": "not allowed: resident outside your buildings"}), 403
+
     if not invoice:
         return jsonify({"message": "invoice not found for this user"}), 404
 
@@ -261,6 +289,14 @@ def admin_create_invoice():
         return jsonify({"message": "invalid amount"}), 400
 
     resident = User.query.filter_by(id=user_id, role="RESIDENT").first()
+
+    # If admin, ensure this resident belongs to your buildings
+    if current_user.role == "ADMIN":
+        details = resident.person_details
+        allowed = get_admin_allowed_buildings(current_user.id)
+        if details and details.building not in allowed:
+            return jsonify({"message": "not allowed: resident outside your buildings"}), 403
+
     if not resident:
         return jsonify({"message": "resident not found"}), 404
 
@@ -321,6 +357,15 @@ def admin_delete_invoice(invoice_id: int):
         return jsonify({"message": message}), status
 
     invoice = MaintenanceInvoice.query.filter_by(id=invoice_id).first()
+
+    # Restrict admin access by building
+    if current_user.role == "ADMIN":
+        resident = User.query.get(invoice.user_id)
+        details = resident.person_details
+        allowed = get_admin_allowed_buildings(current_user.id)
+        if details and details.building not in allowed:
+            return jsonify({"message": "not allowed: resident outside your buildings"}), 403
+
     if not invoice:
         return jsonify({"message": "invoice not found"}), 404
 

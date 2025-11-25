@@ -236,3 +236,26 @@ class OnlinePayment(db.Model):
     confirmed_by_admin = db.relationship(
         "User", foreign_keys=[confirmed_by_admin_id]
     )
+
+class AdminBuilding(db.Model):
+    __tablename__ = "admin_buildings"
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    admin_id = db.Column(
+        db.Integer,
+        db.ForeignKey("users.id"),
+        nullable=False,
+        index=True
+    )
+
+    building = db.Column(db.String(10), nullable=False)
+
+    admin = db.relationship(
+        "User",
+        backref=db.backref("allowed_buildings", lazy="dynamic")
+    )
+
+    def __repr__(self):
+        return f"<AdminBuilding admin={self.admin_id} building={self.building}>"
+
