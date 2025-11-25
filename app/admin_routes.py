@@ -194,7 +194,7 @@ def admin_collect_payment():
         .filter_by(id=invoice_id, user_id=user_id)
         .first()
     )
-    
+
     # Restrict admin access by building
     if current_user.role == "ADMIN":
         resident = User.query.get(user_id)
@@ -704,4 +704,114 @@ def admin_reject_online_payment(payment_id: int):
     db.session.commit()
 
     return jsonify({"message": "online payment rejected"}), 200
+
+@admin_bp.route("/buildings", methods=["GET"])
+def superadmin_list_buildings():
+    """
+    SuperAdmin: list all distinct buildings that appear in PersonDetails.
+    Used to assign them to admins.
+    """
+    current_user, error = get_current_user_from_request(allowed_roles=["SUPERADMIN"])
+    if error:
+        message, status = error
+        return jsonify({"message": message}), status
+
+    rows = (
+        db.session.query(PersonDetails.building.label("building"))
+        .filter(PersonDetails.building != "")
+        .distinct()
+        .order_by(PersonDetails.building.asc())
+        .all()
+    )
+
+    buildings = [row.building for row in rows]
+    return jsonify(buildings), 200
+
+@admin_bp.route("/admins-with-buildings", methods=["GET"])
+def superadmin_list_admins_with_buildings():
+    """
+    SuperAdmin: list all admins with the buildings assigned to each.
+    """
+    current_user, error = get_current_user_from_request(allowed_roles=["SUPERADMIN"])
+    if error:
+        message, status = error
+        return jsonify({"message": message}), status
+
+    admins = User.query.filter(User.role == "ADMIN").all()
+
+    result = []
+    for admin in admins:
+        details = admin.person_details
+        buildings = get_admin_allowed_buildings(admin.id)
+
+        result.append(
+            {
+                "id": admin.id,
+                "username": admin.username,
+                "role": admin.role,
+                "full_name": details.full_name if details else admin.username,
+                "buildings": buildings,
+            }
+        )
+
+    return jsonify(result), 200
+
+@admin_bp.route("/admin_buildings", methods=["POST"])
+def superadmin_add_admin_building():
+    """
+    SuperAdmin: assign a building to an admin.
+    Body: { "admin_id": int, "building": "A1" }
+    """
+    current_user, error = get_current_user_from_request(allowed_roles=["SUPERADMIN"])
+    if error:
+        message, status = error
+        return jsonify({"message": message}), status
+
+    data = request.get_json() or {}
+    admin_id = data.get("admin_id")
+    building = (data.get("building") or "").strip()
+
+    if not admin_id or not building:
+        return jsonify({"message": "admin_id and building are required"}), 400
+
+    admin = User.query.filter_by(id=admin_id, role="ADMIN").first()
+    if not admin:
+        return jsonify({"message": "admin not found or not an ADMIN"}), 404
+
+    existing = AdminBuilding.query.filter_by(admin_id=admin_id, building=building).first()
+    if existing:
+        return jsonify({"message": "building already assigned to this admin"}), 400
+
+    entry = AdminBuilding(admin_id=admin_id, building=building)
+    db.session.add(entry)
+    db.session.commit()
+
+    return jsonify({"message": "building assigned"}), 201
+
+@admin_bp.route("/admin_buildings", methods=["DELETE"])
+def superadmin_remove_admin_building():
+    """
+    SuperAdmin: remove a building from an admin.
+    Body: { "admin_id": int, "building": "A1" }
+    """
+    current_user, error = get_current_user_from_request(allowed_roles=["SUPERADMIN"])
+    if error:
+        message, status = error
+        return jsonify({"message": message}), status
+
+    data = request.get_json() or {}
+    admin_id = data.get("admin_id")
+    building = (data.get("building") or "").strip()
+
+    if not admin_id or not building:
+        return jsonify({"message": "admin_id and building are required"}), 400
+
+    entry = AdminBuilding.query.filter_by(admin_id=admin_id, building=building).first()
+    if not entry:
+        return jsonify({"message": "assignment not found"}), 404
+
+    db.session.delete(entry)
+    db.session.commit()
+
+    return jsonify({"message": "building removed"}), 200
 
