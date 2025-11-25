@@ -22,25 +22,46 @@ def get_admin_allowed_buildings(admin_id: int):
     return [r.building for r in rows]
 
 
-def create_initial_invoices_for_resident(user: User, monthly_amount: Decimal = Decimal("200.00")):
+def create_initial_invoices_for_resident(user: User):
     """
-    Create invoices for the new resident from current month until end of year.
-    Example: if today is 2025-11-xx -> create invoices for Nov & Dec of 2025.
+    Create maintenance invoices for this resident:
+    - From the current month until the end of this year
+    - Plus the full next year (Jan–Dec)
     """
     today = date.today()
-    current_year = today.year
-    start_month = today.month
 
-    for month in range(start_month, 13):  # 13 so it includes 12
+    # Start from current month & year
+    year = today.year
+    month = today.month
+
+    # End at December next year
+    end_year = year + 1
+    end_month = 12
+
+    while year < end_year or (year == end_year and month <= end_month):
+        # 👇 keep your existing amount / due_date / notes logic here
+        # Example (you probably already have something like this):
+        #
+        # amount = Decimal("300.00")   # or from config / DB
+        # due_day = 10
+        # due_date = date(year, month, due_day)
+
         invoice = MaintenanceInvoice(
             user_id=user.id,
-            year=current_year,
+            year=year,
             month=month,
-            amount=monthly_amount,
+            amount=Decimal("300.00"),  # TODO: replace with your actual logic
             status="UNPAID",
-            due_date=date.today()
+            due_date=date(year, month, 10),  # TODO: replace with your actual due date logic
+            notes=None,
         )
         db.session.add(invoice)
+
+        # Move to next month
+        month += 1
+        if month > 12:
+            month = 1
+            year += 1
 
 
 @admin_bp.route("/residents", methods=["GET"])
