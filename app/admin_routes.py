@@ -526,15 +526,35 @@ def superadmin_create_user():
 
     data = request.get_json() or {}
 
-    username = data.get("username", "").strip()
-    password = data.get("password", "").strip()
-    role = data.get("role", "").strip().upper()
+    def clean_str(key: str, default: str = "") -> str:
+        """
+        Required string: always return a stripped string (may be empty).
+        """
+        value = data.get(key, default)
+        if not isinstance(value, str):
+            return default
+        return value.strip()
+    
+    def clean_optional_str(key: str):
+        """
+        Optional string: return None if missing/empty/non-string, otherwise stripped value.
+        """
+        value = data.get(key, None)
+        if not isinstance(value, str):
+            return None
+        value = value.strip()
+        return value or None
 
-    full_name = data.get("full_name", "").strip() or None
-    building = data.get("building", "").strip() or None
-    floor = data.get("floor", "").strip() or None
-    apartment = data.get("apartment", "").strip() or None
-    phone = data.get("phone", "").strip() or None
+
+    username = clean_str("username")
+    password = clean_str("password")
+    role = clean_str("role", "RESIDENT").upper()
+
+    full_name = clean_optional_str("full_name")
+    building = clean_optional_str("building")
+    floor = clean_optional_str("floor")
+    apartment = clean_optional_str("apartment")
+    phone = clean_optional_str("phone")
 
     if not username or not password or not role:
         return jsonify({"message": "username, password and role are required"}), 400
