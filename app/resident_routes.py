@@ -44,25 +44,32 @@ def resident_profile():
 @resident_bp.route("/profile/update", methods=["POST"])
 def resident_update_profile():
     """
-    Resident can change full_name and/or password ONCE in their life.
-    After a successful update, can_edit_profile becomes False.
+    Resident can change full_name and/or password ONCE.
+    After update, can_edit_profile becomes False.
     """
-    user = get_current_user_from_request(allowed_roles=["RESIDENT"])
+    result = get_current_user_from_request(allowed_roles=["RESIDENT"])
 
+    # Your function sometimes returns (user, person) or (user, None)
+    if isinstance(result, tuple):
+        user, _ = result
+    else:
+        user = result
+
+    # Now user is definitely a User model
     if not user.can_edit_profile:
-        return jsonify({"message": "Profile editing is no longer allowed for this account."}), 400
+        return jsonify({"message": "Profile editing is no longer allowed"}), 400
 
     data = request.get_json() or {}
     new_full_name = (data.get("full_name") or "").strip()
     new_password = (data.get("password") or "").strip()
 
     if not new_full_name and not new_password:
-        return jsonify({"message": "Please provide a new full name and/or a new password."}), 400
+        return jsonify({"message": "Provide new full name and/or password"}), 400
 
-    # PersonDetails
+    # Fetch person details
     person = PersonDetails.query.filter_by(user_id=user.id).first()
     if not person:
-        return jsonify({"message": "Person details not found for this user."}), 404
+        return jsonify({"message": "Person details not found"}), 404
 
     if new_full_name:
         person.full_name = new_full_name
@@ -70,30 +77,27 @@ def resident_update_profile():
     if new_password:
         user.set_password(new_password)
 
-    # Lock further edits
+    # Lock future edits
     user.can_edit_profile = False
 
     db.session.commit()
 
-    return jsonify(
-        {
-            "message": "Profile updated successfully.",
-            "user": {
-                "id": user.id,
-                "username": user.username,
-                "role": user.role,
-                "can_edit_profile": user.can_edit_profile,
-            },
-            "person": {
-                "full_name": person.full_name,
-                "building": person.building,
-                "floor": person.floor,
-                "apartment": person.apartment,
-                "phone": person.phone,
-            },
-        }
-    )
-
+    return jsonify({
+        "message": "Profile updated successfully",
+        "user": {
+            "id": user.id,
+            "username": user.username,
+            "role": user.role,
+            "can_edit_profile": user.can_edit_profile,
+        },
+        "person": {
+            "full_name": person.full_name,
+            "building": person.building,
+            "floor": person.floor,
+            "apartment": person.apartment,
+            "phone": person.phone,
+        },
+    })
 
 @resident_bp.route("/invoices", methods=["GET"])
 def resident_invoices():
