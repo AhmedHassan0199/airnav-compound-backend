@@ -42,17 +42,17 @@ def create_initial_invoices_for_resident(user: User):
         # 👇 keep your existing amount / due_date / notes logic here
         # Example (you probably already have something like this):
         #
-        # amount = Decimal("300.00")   # or from config / DB
-        # due_day = 10
+        # amount = Decimal("200.00")   # or from config / DB
+        # due_day = 5
         # due_date = date(year, month, due_day)
 
         invoice = MaintenanceInvoice(
             user_id=user.id,
             year=year,
             month=month,
-            amount=Decimal("300.00"),  # TODO: replace with your actual logic
+            amount=Decimal("200.00"),  # TODO: replace with your actual logic
             status="UNPAID",
-            due_date=date(year, month, 10),  # TODO: replace with your actual due date logic
+            due_date=date(year, month, 5),  # TODO: replace with your actual due date logic
             notes=None,
         )
         db.session.add(invoice)
