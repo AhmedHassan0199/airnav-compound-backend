@@ -10,6 +10,8 @@ class User(db.Model):
     role = db.Column(db.String(32), nullable=False, default="RESIDENT")
     password_hash = db.Column(db.String(255), nullable=False)
 
+    can_edit_profile = db.Column(db.Boolean, nullable=False, default=True)
+
     def set_password(self, password: str):
         self.password_hash = generate_password_hash(password)
 

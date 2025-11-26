@@ -645,6 +645,106 @@ def superadmin_create_user():
         }
     ), 201
 
+@admin_bp.route("/residents/<int:user_id>/profile", methods=["GET"])
+def superadmin_get_resident_profile(user_id: int):
+    """
+    SUPERADMIN can see a resident's profile (user + person_details).
+    """
+    current_user = get_current_user_from_request(allowed_roles=["SUPERADMIN"])
+
+    user = User.query.get_or_404(user_id)
+
+    if user.role != "RESIDENT":
+        return jsonify({"message": "Target user is not a resident."}), 400
+
+    person = PersonDetails.query.filter_by(user_id=user.id).first()
+    if not person:
+        return jsonify({"message": "Person details not found for this user."}), 404
+
+    return jsonify(
+        {
+            "user": {
+                "id": user.id,
+                "username": user.username,
+                "role": user.role,
+                "can_edit_profile": user.can_edit_profile,
+            },
+            "person": {
+                "full_name": person.full_name,
+                "building": person.building,
+                "floor": person.floor,
+                "apartment": person.apartment,
+                "phone": person.phone,
+            },
+        }
+    )
+
+@admin_bp.route("/residents/<int:user_id>/profile", methods=["POST"])
+def superadmin_update_resident_profile(user_id: int):
+    """
+    SUPERADMIN can update a resident's full_name, phone, and/or password.
+    This is NOT limited by can_edit_profile (that's only for the resident self-edit).
+    """
+    current_user = get_current_user_from_request(allowed_roles=["SUPERADMIN"])
+
+    user = User.query.get_or_404(user_id)
+
+    if user.role != "RESIDENT":
+        return jsonify({"message": "Target user is not a resident."}), 400
+
+    person = PersonDetails.query.filter_by(user_id=user.id).first()
+    if not person:
+        return jsonify({"message": "Person details not found for this user."}), 404
+
+    data = request.get_json() or {}
+    full_name = (data.get("full_name") or "").strip()
+    phone = (data.get("phone") or "").strip()
+    new_password = (data.get("password") or "").strip()
+    reset_edit_flag = bool(data.get("reset_can_edit_profile", False))
+
+    if full_name:
+        person.full_name = full_name
+    if phone:
+        person.phone = phone
+
+    if new_password:
+        user.set_password(new_password)
+
+    if reset_edit_flag:
+        user.can_edit_profile = True
+
+    db.session.commit()
+
+    return jsonify({"message": "Resident profile updated successfully."})
+
+@admin_bp.route("/invoices/<int:invoice_id>/status", methods=["POST"])
+def superadmin_update_invoice_status(invoice_id: int):
+    """
+    SUPERADMIN can flip invoice status between PAID and UNPAID.
+    NOTE: This only updates the invoice itself. It does NOT automatically create/delete payments.
+    """
+    current_user = get_current_user_from_request(allowed_roles=["SUPERADMIN"])
+
+    invoice = MaintenanceInvoice.query.get_or_404(invoice_id)
+
+    data = request.get_json() or {}
+    new_status = (data.get("status") or "").upper().strip()
+
+    if new_status not in ("PAID", "UNPAID"):
+        return jsonify({"message": "Invalid status. Only PAID or UNPAID allowed."}), 400
+
+    if new_status == "PAID":
+        invoice.status = "PAID"
+        if not invoice.paid_date:
+          invoice.paid_date = datetime.utcnow().date()
+    else:
+        invoice.status = "UNPAID"
+        invoice.paid_date = None
+
+    db.session.commit()
+
+    return jsonify({"message": "Invoice status updated successfully.", "status": invoice.status})
+
 @admin_bp.route("/online_payments/pending", methods=["GET"])
 def admin_list_pending_online_payments():
     """
