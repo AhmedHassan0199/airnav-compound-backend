@@ -28,7 +28,7 @@ def create_initial_invoices_for_resident(user: User):
     - From the current month until the end of this year
     - Plus the full next year (Jan–Dec)
     """
-    today = date.today()
+    today = datetime.now()
 
     # Start from current month & year
     year = today.year
@@ -236,7 +236,7 @@ def admin_collect_payment():
 
     # Update invoice
     invoice.status = "PAID"
-    invoice.paid_date = date.today()
+    invoice.paid_date = datetime.now()
 
     # Create payment record
     payment = Payment(
@@ -440,7 +440,7 @@ def admin_me_summary():
     )
 
     # Today
-    today = date.today()
+    today = datetime.now()
     today_amount = (
         db.session.query(func.coalesce(func.sum(Payment.amount), 0))
         .filter(
@@ -819,7 +819,7 @@ def admin_approve_online_payment(payment_id: int):
 
     # Mark invoice as PAID
     invoice.status = "PAID"
-    invoice.paid_date = date.today()
+    invoice.paid_date = datetime.now()
 
     # Create Payment record for this online operation
     base_note = f"Instapay TX {op.transaction_ref} from {op.instapay_sender_id}"

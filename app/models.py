@@ -1,4 +1,4 @@
-from datetime import date,datetime
+from datetime import datetime
 from . import db
 from werkzeug.security import generate_password_hash, check_password_hash
 
@@ -62,12 +62,12 @@ class MaintenanceInvoice(db.Model):
     month = db.Column(db.Integer, nullable=False)  # 1–12
     amount = db.Column(db.Numeric(10, 2), nullable=False)
     status = db.Column(db.String(20), nullable=False, default="UNPAID")
-    due_date = db.Column(db.Date, nullable=False)
-    paid_date = db.Column(db.Date, nullable=True)
+    due_date = db.Column(db.DateTime, nullable=False)
+    paid_date = db.Column(db.DateTime, nullable=True)
     notes = db.Column(db.String(255), nullable=True)
 
-    created_at = db.Column(db.Date, default=date.today)
-    updated_at = db.Column(db.Date, default=date.today, onupdate=date.today)
+    created_at = db.Column(db.DateTime, default=datetime.now())
+    updated_at = db.Column(db.DateTime, default=datetime.now(), onupdate=datetime.now())
 
     user = db.relationship(
         "User",
@@ -106,7 +106,7 @@ class Payment(db.Model):
         index=True,
     )
 
-    created_at = db.Column(db.Date, default=date.today)
+    created_at = db.Column(db.DateTime, default=datetime.now())
 
     user = db.relationship(
         "User",
@@ -146,7 +146,7 @@ class Settlement(db.Model):
     )
 
     amount = db.Column(db.Numeric(10, 2), nullable=False)
-    created_at = db.Column(db.Date, default=date.today)
+    created_at = db.Column(db.DateTime, default=datetime.now())
     notes = db.Column(db.String(255), nullable=True)
 
     admin = db.relationship(
@@ -168,7 +168,7 @@ class UnionLedgerEntry(db.Model):
     __tablename__ = "union_ledger"
 
     id = db.Column(db.Integer, primary_key=True)
-    date = db.Column(db.Date, default=date.today, nullable=False)
+    date = db.Column(db.DateTime, default=datetime.now(), nullable=False)
     description = db.Column(db.String(255), nullable=False)
 
     debit = db.Column(db.Numeric(10, 2), default=0, nullable=False)
@@ -185,7 +185,7 @@ class Expense(db.Model):
     __tablename__ = "expenses"
 
     id = db.Column(db.Integer, primary_key=True)
-    date = db.Column(db.Date, default=date.today, nullable=False)
+    date = db.Column(db.DateTime, default=datetime.now(), nullable=False)
     amount = db.Column(db.Numeric(10, 2), nullable=False)
     category = db.Column(db.String(100), nullable=True)
     description = db.Column(db.String(255), nullable=False)
@@ -200,9 +200,9 @@ class NotificationSubscription(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     token = db.Column(db.String(512), nullable=False, unique=True)
     user_agent = db.Column(db.String(256))
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTimeTime, default=datetime.now())
     updated_at = db.Column(
-        db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+        db.DateTimeTime, default=datetime.now(), onupdate=datetime.now()
     )
 
     user = db.relationship("User", backref="notification_subscriptions")
@@ -226,8 +226,8 @@ class OnlinePayment(db.Model):
     # PENDING / APPROVED / REJECTED
     status = db.Column(db.String(20), nullable=False, default="PENDING")
 
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
-    confirmed_at = db.Column(db.DateTime)
+    created_at = db.Column(db.DateTimeTime, default=datetime.now(), nullable=False)
+    confirmed_at = db.Column(db.DateTimeTime)
     confirmed_by_admin_id = db.Column(db.Integer, db.ForeignKey("users.id"))
     notes = db.Column(db.Text)
 

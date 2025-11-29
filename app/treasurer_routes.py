@@ -194,7 +194,7 @@ def treasurer_create_settlement():
         admin_id=admin.id,
         treasurer_id=current_user.id,
         amount=amount_val,
-        created_at=date.today(),
+        created_at=datetime.now(),
         notes=notes,
     )
 
@@ -204,7 +204,7 @@ def treasurer_create_settlement():
     new_balance = current_balance + amount_val
 
     ledger_entry = UnionLedgerEntry(
-        date=date.today(),
+        date=datetime.now(),
         description=f"تسوية من مسؤول التحصيل {admin.username}",
         debit=0,
         credit=amount_val,
@@ -233,7 +233,7 @@ def treasurer_summary():
         message, status = error
         return jsonify({"message": message}), status
 
-    today = date.today()
+    today = datetime.now()
     first_of_month = date(today.year, today.month, 1)
 
     # إجمالي المبالغ المحصلة من السكان (عن طريق مسؤولي التحصيل)
@@ -393,7 +393,7 @@ def treasurer_create_expense():
         amount=amount_val,
         description=description,
         category=category,
-        date=date.today(),
+        date=datetime.now(),
         created_by_id=current_user.id,
     )
     db.session.add(exp)
@@ -403,7 +403,7 @@ def treasurer_create_expense():
     new_balance = current_balance - amount_val
 
     ledger_entry = UnionLedgerEntry(
-        date=date.today(),
+        date=datetime.now(),
         description=f"مصروف: {description}",
         debit=amount_val,
         credit=0,
@@ -464,7 +464,7 @@ def _get_late_residents_data():
     - partial payments
     Returns dict: { "today": ..., "cutoff_day": ..., "late_residents": [...] }
     """
-    today = date.today()
+    today = datetime.now()
     cutoff_day = 5
 
     inv_rows = (
