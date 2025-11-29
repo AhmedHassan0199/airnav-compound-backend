@@ -200,9 +200,9 @@ class NotificationSubscription(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     token = db.Column(db.String(512), nullable=False, unique=True)
     user_agent = db.Column(db.String(256))
-    created_at = db.Column(db.DateTimeTime, default=datetime.now())
+    created_at = db.Column(db.DateTime, default=datetime.now())
     updated_at = db.Column(
-        db.DateTimeTime, default=datetime.now(), onupdate=datetime.now()
+        db.DateTime, default=datetime.now(), onupdate=datetime.now()
     )
 
     user = db.relationship("User", backref="notification_subscriptions")
@@ -226,8 +226,8 @@ class OnlinePayment(db.Model):
     # PENDING / APPROVED / REJECTED
     status = db.Column(db.String(20), nullable=False, default="PENDING")
 
-    created_at = db.Column(db.DateTimeTime, default=datetime.now(), nullable=False)
-    confirmed_at = db.Column(db.DateTimeTime)
+    created_at = db.Column(db.DateTime, default=datetime.now(), nullable=False)
+    confirmed_at = db.Column(db.DateTime)
     confirmed_by_admin_id = db.Column(db.Integer, db.ForeignKey("users.id"))
     notes = db.Column(db.Text)
 
