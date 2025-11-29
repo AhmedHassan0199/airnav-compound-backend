@@ -70,6 +70,11 @@ def admin_search_residents():
     Search residents by name / building / floor / apartment / username.
     Only ADMIN and SUPERADMIN can use this.
     """
+
+    building = request.args.get("building", type=str)
+    floor = request.args.get("floor", type=str)
+    apartment = request.args.get("apartment", type=str)
+
     current_user, error = get_current_user_from_request(
         allowed_roles=["ADMIN", "SUPERADMIN","ONLINE_ADMIN"]
     )
@@ -77,7 +82,6 @@ def admin_search_residents():
         message, status = error
         return jsonify({"message": message}), status
 
-    query = request.args.get("query", "", type=str).strip()
 
     # Base query
     q = (
@@ -85,23 +89,18 @@ def admin_search_residents():
         .join(PersonDetails, PersonDetails.user_id == User.id)
         .filter(User.role == "RESIDENT")
     )
-
+    
     # Restrict for ADMIN users
     if current_user.role == "ADMIN":
         allowed = get_admin_allowed_buildings(current_user.id)
         q = q.filter(PersonDetails.building.in_(allowed))
-
-    if query:
-        like = f"%{query}%"
-        q = q.filter(
-            and_(
-                User.username.ilike(like),
-                PersonDetails.full_name.ilike(like),
-                PersonDetails.building.ilike(like),
-                PersonDetails.floor.ilike(like),
-                PersonDetails.apartment.ilike(like),
-            )
-        )
+    
+    if building:
+        q = q.filter(PersonDetails.building == building)
+    if floor:
+        q = q.filter(PersonDetails.floor == floor)
+    if apartment:
+        q = q.filter(PersonDetails.apartment == apartment)
 
     residents = q.order_by(PersonDetails.building, PersonDetails.floor, PersonDetails.apartment).all()
 
