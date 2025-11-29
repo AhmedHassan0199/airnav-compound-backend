@@ -1,6 +1,6 @@
 from datetime import date,datetime
 from flask import Blueprint, jsonify, request
-from sqlalchemy import or_, func
+from sqlalchemy import or_, func, and_
 from decimal import Decimal
 
 from app import db
@@ -94,7 +94,7 @@ def admin_search_residents():
     if query:
         like = f"%{query}%"
         q = q.filter(
-            or_(
+            and_(
                 User.username.ilike(like),
                 PersonDetails.full_name.ilike(like),
                 PersonDetails.building.ilike(like),
