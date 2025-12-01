@@ -38,6 +38,7 @@ def resident_profile():
             "building": details.building if details else None,
             "floor": details.floor if details else None,
             "apartment": details.apartment if details else None,
+            "phone": details.phone if details else None
         }
     })
 
