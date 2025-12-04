@@ -644,39 +644,6 @@ def superadmin_create_user():
         }
     ), 201
 
-@admin_bp.route("/residents/<int:user_id>/profile", methods=["GET"])
-def superadmin_get_resident_profile(user_id: int):
-    """
-    SUPERADMIN can see a resident's profile (user + person_details).
-    """
-    current_user = get_current_user_from_request(allowed_roles=["SUPERADMIN"])
-
-    user = User.query.get_or_404(user_id)
-
-    if user.role != "RESIDENT":
-        return jsonify({"message": "Target user is not a resident."}), 400
-
-    person = PersonDetails.query.filter_by(user_id=user.id).first()
-    if not person:
-        return jsonify({"message": "Person details not found for this user."}), 404
-
-    return jsonify(
-        {
-            "user": {
-                "id": user.id,
-                "username": user.username,
-                "role": user.role,
-                "can_edit_profile": user.can_edit_profile,
-            },
-            "person": {
-                "full_name": person.full_name,
-                "building": person.building,
-                "floor": person.floor,
-                "apartment": person.apartment,
-                "phone": person.phone,
-            },
-        }
-    )
 
 @admin_bp.route("/superadmin/residents/<int:user_id>/profile", methods=["POST"])
 def superadmin_update_resident_profile(user_id):
