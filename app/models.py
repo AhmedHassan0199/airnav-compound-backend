@@ -12,6 +12,9 @@ class User(db.Model):
 
     can_edit_profile = db.Column(db.Boolean, nullable=False, default=True)
 
+
+    last_login_at = db.Column(db.DateTime, nullable=True)
+
     def set_password(self, password: str):
         self.password_hash = generate_password_hash(password)
 

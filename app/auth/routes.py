@@ -114,6 +114,9 @@ def login():
     if not user or not user.check_password(password):
         return jsonify({"message": "invalid credentials"}), 401
 
+    user.last_login_at = datetime.now()
+    db.session.commit()
+
     token = create_token(user)
 
     return jsonify(
@@ -123,6 +126,7 @@ def login():
                 "id": user.id,
                 "username": user.username,
                 "role": user.role,
+                "last_login_at": user.last_login_at.isoformat() if user.last_login_at else None,
             },
         }
     )
