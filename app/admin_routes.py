@@ -158,10 +158,12 @@ def _get_paid_invoices_rows_for_month(year: int, month: int):
             PersonDetails.apartment.label("apartment"),
             Payment.created_at.label("payment_date"),
             Payment.method.label("payment_method"),
+            User.role.label("collected_by_role"),
         )
         .join(Payment, Payment.invoice_id == MaintenanceInvoice.id)
         .join(User, User.id == MaintenanceInvoice.user_id)
         .join(PersonDetails, PersonDetails.user_id == User.id)
+        .join(User, User.id == Payment.collected_by_admin_id) 
         .filter(
             MaintenanceInvoice.year == year,
             MaintenanceInvoice.month == month,
