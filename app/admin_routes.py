@@ -1,7 +1,14 @@
 from datetime import date,datetime
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, send_file, render_template, current_app
+from io import BytesIO
 from sqlalchemy import or_, func, and_
 from decimal import Decimal
+
+try:
+    from weasyprint import HTML
+    WEASYPRINT_AVAILABLE = True
+except Exception:
+    WEASYPRINT_AVAILABLE = False
 
 from app import db
 from app.models import (
@@ -20,7 +27,6 @@ admin_bp = Blueprint("admin", __name__)
 def get_admin_allowed_buildings(admin_id: int):
     rows = AdminBuilding.query.filter_by(admin_id=admin_id).all()
     return [r.building for r in rows]
-
 
 def create_initial_invoices_for_resident(user: User):
     """
@@ -63,6 +69,81 @@ def create_initial_invoices_for_resident(user: User):
             month = 1
             year += 1
 
+def get_paid_invoices_for_month(year: int, month: int):
+    """
+    ترجع قائمة بالفواتير المدفوعة لشهر/سنة معينة،
+    مع بيانات المقيم ونوع الدفع وتاريخ السداد.
+    """
+    # نجيب كل الفواتير PAID للمقيمين
+    query = (
+        db.session.query(MaintenanceInvoice, PersonDetails, User)
+        .join(User, MaintenanceInvoice.user_id == User.id)
+        .join(PersonDetails, PersonDetails.user_id == User.id)
+        .filter(
+            MaintenanceInvoice.status == "PAID",
+            MaintenanceInvoice.year == year,
+            MaintenanceInvoice.month == month,
+            User.role == "RESIDENT",
+        )
+        .order_by(
+            PersonDetails.building,
+            PersonDetails.floor,
+            PersonDetails.apartment,
+            MaintenanceInvoice.id,
+        )
+    )
+
+    rows = []
+    serial = 1
+
+    for invoice, person, user in query.all():
+        # نحدد نوع الدفع و تاريخ السداد
+        payment_type = "UNKNOWN"
+        payment_date = invoice.paid_date
+
+        # أولوية: لو فيه OnlinePayment APPROVED → نعتبرها Online
+        online = (
+            OnlinePayment.query
+            .filter_by(invoice_id=invoice.id, status="APPROVED")
+            .order_by(OnlinePayment.confirmed_at.desc())
+            .first()
+        )
+        if online:
+            payment_type = "ONLINE"
+            payment_date = online.confirmed_at or payment_date
+        else:
+            # لو مفيش أونلاين، نشوف الـ Payment (الكاش)
+            pay = (
+                Payment.query
+                .filter_by(invoice_id=invoice.id)
+                .order_by(Payment.created_at.desc())
+                .first()
+            )
+            if pay:
+                payment_type = "CASH"
+                payment_date = pay.created_at or payment_date
+
+        if payment_date is not None:
+            payment_date_str = payment_date.date().isoformat()  # YYYY-MM-DD
+        else:
+            payment_date_str = None
+
+        rows.append(
+            {
+                "serial": serial,
+                "full_name": person.full_name,
+                "building": person.building,
+                "floor": person.floor,
+                "apartment": person.apartment,
+                "payment_date": payment_date_str,
+                "invoice_type": payment_type,  # "ONLINE" or "CASH" or "UNKNOWN"
+                "amount": float(invoice.amount),
+                "invoice_id": invoice.id,
+            }
+        )
+        serial += 1
+
+    return rows
 
 @admin_bp.route("/residents", methods=["GET"])
 def admin_search_residents():
@@ -924,6 +1005,84 @@ def admin_reject_online_payment(payment_id: int):
     db.session.commit()
 
     return jsonify({"message": "online payment rejected"}), 200
+
+@admin_bp.route("/paid-invoices", methods=["GET"])
+def superadmin_paid_invoices_json():
+    """
+    SUPERADMIN فقط:
+    ترجع جدول بالفواتير المدفوعة لشهر/سنة معينة.
+    GET /admin/paid-invoices?year=2025&month=11
+    """
+    user, error = get_current_user_from_request(allowed_roles=["SUPERADMIN"])
+    if error:
+        message, status = error
+        return jsonify({"message": message}), status
+
+    year = request.args.get("year", type=int)
+    month = request.args.get("month", type=int)
+
+    if not year or not month:
+        return jsonify({"message": "year and month are required as integers"}), 400
+
+    rows = get_paid_invoices_for_month(year, month)
+
+    return jsonify(
+        {
+            "year": year,
+            "month": month,
+            "rows": rows,
+        }
+    )
+
+@admin_bp.route("/paid-invoices/pdf", methods=["GET"])
+def superadmin_paid_invoices_pdf():
+    """
+    SUPERADMIN فقط:
+    يولّد PDF لتقرير الفواتير المدفوعة لشهر/سنة معينة.
+    GET /admin/paid-invoices/pdf?year=2025&month=11
+    """
+    if not WEASYPRINT_AVAILABLE:
+        return (
+            jsonify(
+                {
+                    "message": "PDF generation is not available in this environment"
+                }
+            ),
+            500,
+        )
+
+    user, error = get_current_user_from_request(allowed_roles=["SUPERADMIN"])
+    if error:
+        message, status = error
+        return jsonify({"message": message}), status
+
+    year = request.args.get("year", type=int)
+    month = request.args.get("month", type=int)
+
+    if not year or not month:
+        return jsonify({"message": "year and month are required as integers"}), 400
+
+    rows = get_paid_invoices_for_month(year, month)
+
+    # نرندر HTML من تمبلت
+    html_str = render_template(
+        "paid_invoices_report.html",
+        year=year,
+        month=month,
+        rows=rows,
+    )
+
+    pdf_io = BytesIO()
+    HTML(string=html_str, base_url=current_app.root_path).write_pdf(pdf_io)
+    pdf_io.seek(0)
+
+    filename = f"paid_invoices_{year}_{month}.pdf"
+    return send_file(
+        pdf_io,
+        as_attachment=True,
+        download_name=filename,
+        mimetype="application/pdf",
+    )
 
 @admin_bp.route("/buildings", methods=["GET"])
 def superadmin_list_buildings():

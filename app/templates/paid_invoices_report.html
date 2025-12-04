@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="utf-8" />
+    <title>تقرير الفواتير المسددة</title>
+    <style>
+      @page {
+        size: A4;
+        margin: 15mm 10mm;
+      }
+
+      body {
+        font-family: "Cairo", sans-serif;
+        direction: rtl;
+        text-align: right;
+        font-size: 11px;
+      }
+
+      .container {
+        width: 100%;
+      }
+
+      .header {
+        text-align: center;
+        margin-bottom: 16px;
+      }
+
+      .title {
+        font-size: 18px;
+        font-weight: 700;
+        margin-bottom: 4px;
+      }
+
+      .sub {
+        font-size: 11px;
+        color: #555;
+      }
+
+      .meta {
+        margin-bottom: 8px;
+        font-size: 11px;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 8px;
+      }
+
+      th,
+      td {
+        border: 1px solid #ccc;
+        padding: 4px 6px;
+        font-size: 10px;
+      }
+
+      th {
+        background-color: #f0f0f0;
+        font-weight: 700;
+        text-align: center;
+      }
+
+      td {
+        text-align: center;
+      }
+
+      .footer {
+        margin-top: 16px;
+        font-size: 9px;
+        color: #777;
+        border-top: 1px solid #ddd;
+        padding-top: 6px;
+        text-align: center;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="header">
+        <div class="title">تقرير الفواتير المسددة</div>
+        <div class="sub">اتحاد شاغلين مدينة الملاحة الجوية</div>
+      </div>
+
+      <div class="meta">
+        <div>الشهر / السنة: {{ month }} / {{ year }}</div>
+        <div>إجمالي عدد الفواتير المسددة: {{ rows|length }}</div>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th>م</th>
+            <th>الاسم</th>
+            <th>المبنى</th>
+            <th>الدور</th>
+            <th>الشقة</th>
+            <th>تاريخ السداد</th>
+            <th>نوع الفاتورة</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+          <tr>
+            <td>{{ row.serial }}</td>
+            <td style="text-align:right;">{{ row.full_name }}</td>
+            <td>{{ row.building }}</td>
+            <td>{{ row.floor }}</td>
+            <td>{{ row.apartment }}</td>
+            <td>{{ row.payment_date or "-" }}</td>
+            <td>
+              {% if row.invoice_type == "ONLINE" %}
+                دفع إلكتروني (إنستا باي)
+              {% elif row.invoice_type == "CASH" %}
+                دفع نقدي
+              {% else %}
+                غير محدد
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+
+      <div class="footer">
+        تم إنشاء هذا التقرير إلكترونياً من بوابة اتحاد شاغلين مدينة الملاحة الجوية.
+      </div>
+    </div>
+  </body>
+</html>
