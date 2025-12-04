@@ -180,12 +180,15 @@ def _get_paid_invoices_rows_for_month(year: int, month: int):
     for row in q.all():
         method = (row.payment_method or "").upper()
 
-        # نحدد إذا كانت Online (Instapay) أو Cash
-        # عدل المابّنج لو عندك values مختلفة في الـ DB
-        if method in ("ONLINE", "INSTAPAY", "ONLINE_INSTAPAY"):
-            payment_type = "ONLINE"
-        else:
-            payment_type = "CASH"
+        # هل الدفع أونلاين بناءً على نوعه؟
+        is_online_method = method in ("ONLINE", "INSTAPAY", "ONLINE_INSTAPAY")
+
+        # هل الشخص اللي جمع الدفع هو ONLINE_ADMIN ؟
+        collected_by_role = (row.collected_by_role or "").upper()
+        is_online_admin = collected_by_role == "ONLINE_ADMIN"
+
+        # النتيجة النهائية
+        payment_type = "ONLINE" if is_online_method or is_online_admin else "CASH"
 
         rows.append(
             {
