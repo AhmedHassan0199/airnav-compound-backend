@@ -2,6 +2,7 @@ from datetime import date,datetime
 from flask import Blueprint, jsonify, request, send_file, render_template, current_app
 from io import BytesIO
 from sqlalchemy import or_, func, and_
+from sqlalchemy.orm import aliased
 from decimal import Decimal
 
 try:
@@ -149,6 +150,7 @@ def _get_paid_invoices_rows_for_month(year: int, month: int):
     """
     يرجّع list فيها كل المدفوعات (Payments) الخاصة بفواتير هذا الشهر/السنة.
     """
+    UserCollected = aliased(User)
     q = (
         db.session.query(
             MaintenanceInvoice.id.label("invoice_id"),
@@ -158,12 +160,12 @@ def _get_paid_invoices_rows_for_month(year: int, month: int):
             PersonDetails.apartment.label("apartment"),
             Payment.created_at.label("payment_date"),
             Payment.method.label("payment_method"),
-            User.role.label("collected_by_role"),
+            UserCollected.role.label("collected_by_role"),  # 👈 إضافة مهمة
         )
         .join(Payment, Payment.invoice_id == MaintenanceInvoice.id)
         .join(User, User.id == MaintenanceInvoice.user_id)
         .join(PersonDetails, PersonDetails.user_id == User.id)
-        .join(User, User.id == Payment.collected_by_admin_id) 
+        .join(UserCollected, UserCollected.id == Payment.collected_by_admin_id)  # 👈 نجيب اللي جمع الفلوس
         .filter(
             MaintenanceInvoice.year == year,
             MaintenanceInvoice.month == month,
