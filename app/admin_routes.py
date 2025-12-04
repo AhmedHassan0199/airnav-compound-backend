@@ -678,71 +678,142 @@ def superadmin_get_resident_profile(user_id: int):
         }
     )
 
-@admin_bp.route("/residents/<int:user_id>/profile", methods=["POST"])
-def superadmin_update_resident_profile(user_id: int):
+@admin_bp.route("/superadmin/residents/<int:user_id>/profile", methods=["POST"])
+def superadmin_update_resident_profile(user_id):
     """
-    SUPERADMIN can update a resident's full_name, phone, and/or password.
-    This is NOT limited by can_edit_profile (that's only for the resident self-edit).
+    SUPERADMIN: Update a resident's profile and optionally reset password.
+    Fields:
+      - full_name (required)
+      - building (required)
+      - floor (required)
+      - apartment (required)
+      - phone (required)
+      - password (optional; if provided, resets password)
+      - can_edit_profile (optional bool; default keeps current)
     """
-    current_user = get_current_user_from_request(allowed_roles=["SUPERADMIN"])
+    current_user, error = get_current_user_from_request(allowed_roles=["SUPERADMIN"])
+    if error:
+        msg, status = error
+        return jsonify({"message": msg}), status
 
-    user = User.query.get_or_404(user_id)
-
-    if user.role != "RESIDENT":
-        return jsonify({"message": "Target user is not a resident."}), 400
-
-    person = PersonDetails.query.filter_by(user_id=user.id).first()
-    if not person:
-        return jsonify({"message": "Person details not found for this user."}), 404
+    user = User.query.filter_by(id=user_id, role="RESIDENT").first()
+    if not user:
+        return jsonify({"message": "resident not found"}), 404
 
     data = request.get_json() or {}
+
     full_name = (data.get("full_name") or "").strip()
+    building = (data.get("building") or "").strip()
+    floor = (data.get("floor") or "").strip()
+    apartment = (data.get("apartment") or "").strip()
     phone = (data.get("phone") or "").strip()
     new_password = (data.get("password") or "").strip()
-    reset_edit_flag = bool(data.get("reset_can_edit_profile", False))
+    can_edit_profile = data.get("can_edit_profile", None)
 
-    if full_name:
-        person.full_name = full_name
-    if phone:
-        person.phone = phone
+    if not full_name or not building or not floor or not apartment or not phone:
+        return jsonify({"message": "full_name, building, floor, apartment, and phone are required."}), 400
 
+    details = PersonDetails.query.filter_by(user_id=user.id).first()
+    if not details:
+        return jsonify({"message": "person details not found for this user"}), 404
+
+    # Update details
+    details.full_name = full_name
+    details.building = building
+    details.floor = floor
+    details.apartment = apartment
+    details.phone = phone
+
+    # Optional password reset
     if new_password:
         user.set_password(new_password)
 
-    if reset_edit_flag:
-        user.can_edit_profile = True
+    # Optional can_edit_profile override
+    if can_edit_profile is not None:
+        user.can_edit_profile = bool(can_edit_profile)
 
     db.session.commit()
 
-    return jsonify({"message": "Resident profile updated successfully."})
+    return jsonify({
+        "message": "resident profile updated successfully",
+        "user": {
+            "id": user.id,
+            "username": user.username,
+            "role": user.role,
+            "can_edit_profile": user.can_edit_profile,
+        },
+        "person": {
+            "full_name": details.full_name,
+            "building": details.building,
+            "floor": details.floor,
+            "apartment": details.apartment,
+            "phone": details.phone,
+        },
+    })
 
-@admin_bp.route("/invoices/<int:invoice_id>/status", methods=["POST"])
-def superadmin_update_invoice_status(invoice_id: int):
+@admin_bp.route("/superadmin/invoices/<int:invoice_id>/status", methods=["POST"])
+def superadmin_update_invoice_status(invoice_id):
     """
-    SUPERADMIN can flip invoice status between PAID and UNPAID.
-    NOTE: This only updates the invoice itself. It does NOT automatically create/delete payments.
+    SUPERADMIN: Update the status of any invoice.
+    Body:
+      - status: one of ["UNPAID", "PAID", "OVERDUE", "PENDING", "PENDING_CONFIRMATION"]
+      - paid_date (optional ISO string) – if status == "PAID" and you want custom date
     """
-    current_user = get_current_user_from_request(allowed_roles=["SUPERADMIN"])
-
-    invoice = MaintenanceInvoice.query.get_or_404(invoice_id)
+    current_user, error = get_current_user_from_request(allowed_roles=["SUPERADMIN"])
+    if error:
+        msg, status = error
+        return jsonify({"message": msg}), status
 
     data = request.get_json() or {}
-    new_status = (data.get("status") or "").upper().strip()
+    new_status = (data.get("status") or "").strip().upper()
+    paid_date_str = data.get("paid_date")
 
-    if new_status not in ("PAID", "UNPAID"):
-        return jsonify({"message": "Invalid status. Only PAID or UNPAID allowed."}), 400
+    allowed_statuses = {
+        "UNPAID",
+        "PAID",
+        "OVERDUE",
+        "PENDING",
+        "PENDING_CONFIRMATION",
+    }
 
+    if new_status not in allowed_statuses:
+        return jsonify({"message": "invalid status"}), 400
+
+    invoice = MaintenanceInvoice.query.get(invoice_id)
+    if not invoice:
+        return jsonify({"message": "invoice not found"}), 404
+
+    invoice.status = new_status
+
+    # Handle paid_date
     if new_status == "PAID":
-        invoice.status = "PAID"
-        if not invoice.paid_date:
-          invoice.paid_date = datetime.utcnow().date()
+        if paid_date_str:
+            try:
+                invoice.paid_date = datetime.fromisoformat(paid_date_str)
+            except ValueError:
+                return jsonify({"message": "invalid paid_date format"}), 400
+        else:
+            # default: now
+            invoice.paid_date = datetime.now()
     else:
-        invoice.status = "UNPAID"
         invoice.paid_date = None
 
     db.session.commit()
 
-    return jsonify({"message": "Invoice status updated successfully.", "status": invoice.status})
+    return jsonify({
+        "message": "invoice status updated successfully",
+        "invoice": {
+            "id": invoice.id,
+            "user_id": invoice.user_id,
+            "year": invoice.year,
+            "month": invoice.month,
+            "amount": float(invoice.amount),
+            "status": invoice.status,
+            "due_date": invoice.due_date.isoformat() if invoice.due_date else None,
+            "paid_date": invoice.paid_date.isoformat() if invoice.paid_date else None,
+            "notes": invoice.notes,
+        }
+    })
 
 @admin_bp.route("/online_payments/pending", methods=["GET"])
 def admin_list_pending_online_payments():
@@ -996,4 +1067,37 @@ def superadmin_remove_admin_building():
     db.session.commit()
 
     return jsonify({"message": "building removed"}), 200
+
+@admin_bp.route("/superadmin/residents/<int:user_id>/profile", methods=["GET"])
+def superadmin_get_resident_profile(user_id):
+    """
+    SUPERADMIN: Fetch full profile of a RESIDENT user
+    (User + PersonDetails + can_edit_profile).
+    """
+    current_user, error = get_current_user_from_request(allowed_roles=["SUPERADMIN"])
+    if error:
+        msg, status = error
+        return jsonify({"message": msg}), status
+
+    user = User.query.filter_by(id=user_id, role="RESIDENT").first()
+    if not user:
+        return jsonify({"message": "resident not found"}), 404
+
+    details = PersonDetails.query.filter_by(user_id=user.id).first()
+
+    return jsonify({
+        "user": {
+            "id": user.id,
+            "username": user.username,
+            "role": user.role,
+            "can_edit_profile": user.can_edit_profile,
+        },
+        "person": {
+            "full_name": details.full_name if details else None,
+            "building": details.building if details else None,
+            "floor": details.floor if details else None,
+            "apartment": details.apartment if details else None,
+            "phone": details.phone if details else None,
+        },
+    })
 
