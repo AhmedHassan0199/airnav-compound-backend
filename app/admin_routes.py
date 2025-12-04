@@ -145,6 +145,64 @@ def get_paid_invoices_for_month(year: int, month: int):
 
     return rows
 
+def _get_paid_invoices_rows_for_month(year: int, month: int):
+    """
+    يرجّع list فيها كل المدفوعات (Payments) الخاصة بفواتير هذا الشهر/السنة.
+    """
+    q = (
+        db.session.query(
+            MaintenanceInvoice.id.label("invoice_id"),
+            PersonDetails.full_name.label("resident_name"),
+            PersonDetails.building.label("building"),
+            PersonDetails.floor.label("floor"),
+            PersonDetails.apartment.label("apartment"),
+            Payment.created_at.label("payment_date"),
+            Payment.method.label("payment_method"),
+        )
+        .join(Payment, Payment.invoice_id == MaintenanceInvoice.id)
+        .join(User, User.id == MaintenanceInvoice.user_id)
+        .join(PersonDetails, PersonDetails.user_id == User.id)
+        .filter(
+            MaintenanceInvoice.year == year,
+            MaintenanceInvoice.month == month,
+            # اختياري: نتأكد كمان إن حالة الفاتورة PAID
+            MaintenanceInvoice.status == "PAID",
+        )
+        .order_by(
+            PersonDetails.building,
+            PersonDetails.floor,
+            PersonDetails.apartment,
+            Payment.created_at,
+        )
+    )
+
+    rows = []
+    for row in q.all():
+        method = (row.payment_method or "").upper()
+
+        # نحدد إذا كانت Online (Instapay) أو Cash
+        # عدل المابّنج لو عندك values مختلفة في الـ DB
+        if method in ("ONLINE", "INSTAPAY", "ONLINE_INSTAPAY"):
+            payment_type = "ONLINE"
+        else:
+            payment_type = "CASH"
+
+        rows.append(
+            {
+                "invoice_id": row.invoice_id,
+                "resident_name": row.resident_name,
+                "building": row.building,
+                "floor": row.floor,
+                "apartment": row.apartment,
+                "payment_date": row.payment_date.isoformat()
+                if row.payment_date
+                else None,
+                "payment_type": payment_type,
+            }
+        )
+
+    return rows
+
 @admin_bp.route("/residents", methods=["GET"])
 def admin_search_residents():
     """
@@ -1008,63 +1066,51 @@ def admin_reject_online_payment(payment_id: int):
 
 @admin_bp.route("/paid-invoices", methods=["GET"])
 def superadmin_paid_invoices_json():
-    """
-    SUPERADMIN فقط:
-    ترجع جدول بالفواتير المدفوعة لشهر/سنة معينة.
-    GET /admin/paid-invoices?year=2025&month=11
-    """
     user, error = get_current_user_from_request(allowed_roles=["SUPERADMIN"])
     if error:
         message, status = error
         return jsonify({"message": message}), status
 
-    year = request.args.get("year", type=int)
-    month = request.args.get("month", type=int)
+    try:
+        year = int(request.args.get("year", "0"))
+        month = int(request.args.get("month", "0"))
+    except ValueError:
+        return jsonify({"message": "invalid year or month"}), 400
 
-    if not year or not month:
-        return jsonify({"message": "year and month are required as integers"}), 400
+    if year < 2000 or not (1 <= month <= 12):
+        return jsonify({"message": "invalid year or month"}), 400
 
-    rows = get_paid_invoices_for_month(year, month)
+    rows = _get_paid_invoices_rows_for_month(year, month)
 
-    return jsonify(
-        {
-            "year": year,
-            "month": month,
-            "rows": rows,
-        }
-    )
+    return jsonify({
+        "year": year,
+        "month": month,
+        "rows": rows,
+    })
 
 @admin_bp.route("/paid-invoices/pdf", methods=["GET"])
 def superadmin_paid_invoices_pdf():
-    """
-    SUPERADMIN فقط:
-    يولّد PDF لتقرير الفواتير المدفوعة لشهر/سنة معينة.
-    GET /admin/paid-invoices/pdf?year=2025&month=11
-    """
-    if not WEASYPRINT_AVAILABLE:
-        return (
-            jsonify(
-                {
-                    "message": "PDF generation is not available in this environment"
-                }
-            ),
-            500,
-        )
-
     user, error = get_current_user_from_request(allowed_roles=["SUPERADMIN"])
     if error:
         message, status = error
         return jsonify({"message": message}), status
 
-    year = request.args.get("year", type=int)
-    month = request.args.get("month", type=int)
+    try:
+        year = int(request.args.get("year", "0"))
+        month = int(request.args.get("month", "0"))
+    except ValueError:
+        return jsonify({"message": "invalid year or month"}), 400
 
-    if not year or not month:
-        return jsonify({"message": "year and month are required as integers"}), 400
+    if year < 2000 or not (1 <= month <= 12):
+        return jsonify({"message": "invalid year or month"}), 400
 
-    rows = get_paid_invoices_for_month(year, month)
+    rows = _get_paid_invoices_rows_for_month(year, month)
 
-    # نرندر HTML من تمبلت
+    # لو مفيش بيانات، ممكن ترجع 404 أو PDF فاضي، زي ما تحب
+    if not rows:
+        return jsonify({"message": "no paid invoices for this month"}), 404
+
+    # هنستخدم تيمبلت HTML شبيه بالـ invoice.html بس جدول
     html_str = render_template(
         "paid_invoices_report.html",
         year=year,
