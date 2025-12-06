@@ -864,31 +864,29 @@ def superadmin_update_resident_profile(user_id):
         },
     })
 
-@admin_bp.route("/superadmin/invoices/<int:invoice_id>/status", methods=["POST"])
-def superadmin_update_invoice_status(invoice_id):
+@admin_bp.route("/superadmin/invoices/<int:invoice_id>/status", methods=["PUT", "PATCH"])
+def superadmin_update_invoice_status(invoice_id: int):
     """
-    SUPERADMIN: Update the status of any invoice.
-    Body:
-      - status: one of ["UNPAID", "PAID", "OVERDUE", "PENDING", "PENDING_CONFIRMATION"]
-      - paid_date (optional ISO string) – if status == "PAID" and you want custom date
+    SUPERADMIN only:
+    - تحديث حالة الفاتورة
+    - لو هننقل الفاتورة من PAID إلى أي حالة غير PAID
+      نمسح كل الـ payments المرتبطة بيها عشان التقارير تبقى متسقة.
     """
-    current_user, error = get_current_user_from_request(allowed_roles=["SUPERADMIN"])
+    user, error = get_current_user_from_request(allowed_roles=["SUPERADMIN"])
     if error:
-        msg, status = error
-        return jsonify({"message": msg}), status
+        message, status = error
+        return jsonify({"message": message}), status
 
     data = request.get_json() or {}
     new_status = (data.get("status") or "").strip().upper()
-    paid_date_str = data.get("paid_date")
 
-    allowed_statuses = {
+    allowed_statuses = [
         "UNPAID",
         "PAID",
         "OVERDUE",
         "PENDING",
         "PENDING_CONFIRMATION",
-    }
-
+    ]
     if new_status not in allowed_statuses:
         return jsonify({"message": "invalid status"}), 400
 
@@ -896,26 +894,25 @@ def superadmin_update_invoice_status(invoice_id):
     if not invoice:
         return jsonify({"message": "invoice not found"}), 404
 
-    invoice.status = new_status
+    old_status = invoice.status
 
-    # Handle paid_date
-    if new_status == "PAID":
-        if paid_date_str:
-            try:
-                invoice.paid_date = datetime.fromisoformat(paid_date_str)
-            except ValueError:
-                return jsonify({"message": "invalid paid_date format"}), 400
-        else:
-            # default: now
-            invoice.paid_date = datetime.now()
-    else:
+    # 👇 لو بتحوّل من PAID لأي حالة تانية → امسح كل الـ payments المرتبطة
+    if old_status == "PAID" and new_status != "PAID":
+        Payment.query.filter_by(invoice_id=invoice.id).delete()
+
+        # بما إن الفاتورة مبقتش مدفوعة، نشيل تاريخ السداد
         invoice.paid_date = None
+
+    # لو بتحوّل إلى PAID ومفيش paid_date، نحطها دلوقتي
+    if new_status == "PAID" and invoice.paid_date is None:
+        invoice.paid_date = datetime.now()
+
+    invoice.status = new_status
 
     db.session.commit()
 
-    return jsonify({
-        "message": "invoice status updated successfully",
-        "invoice": {
+    return jsonify(
+        {
             "id": invoice.id,
             "user_id": invoice.user_id,
             "year": invoice.year,
@@ -926,7 +923,7 @@ def superadmin_update_invoice_status(invoice_id):
             "paid_date": invoice.paid_date.isoformat() if invoice.paid_date else None,
             "notes": invoice.notes,
         }
-    })
+    )
 
 @admin_bp.route("/online_payments/pending", methods=["GET"])
 def admin_list_pending_online_payments():
