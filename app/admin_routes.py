@@ -319,7 +319,7 @@ def admin_resident_invoices(user_id: int):
         else:
             payment_type = None
             payment_date = None
-            
+
         result.append({
             "id": inv.id,
             "year": inv.year,
@@ -878,13 +878,12 @@ def superadmin_update_resident_profile(user_id):
         },
     })
 
-@admin_bp.route("/superadmin/invoices/<int:invoice_id>/status", methods=["PUT", "PATCH"])
+@admin_bp.route("/superadmin/invoices/<int:invoice_id>", methods=["PUT", "PATCH"])
 def superadmin_update_invoice_status(invoice_id: int):
     """
-    SUPERADMIN only:
-    - تحديث حالة الفاتورة
-    - لو هننقل الفاتورة من PAID إلى أي حالة غير PAID
-      نمسح كل الـ payments المرتبطة بيها عشان التقارير تبقى متسقة.
+    SUPERADMIN: تحديث حالة الفاتورة.
+    - لو من PAID → UNPAID: نمسح كل الـ Payments المرتبطة بالفاتورة.
+    - لو من أي حالة → PAID: نضيف Payment (لو مش موجودة) ونحدّث paid_date.
     """
     user, error = get_current_user_from_request(allowed_roles=["SUPERADMIN"])
     if error:
@@ -894,13 +893,14 @@ def superadmin_update_invoice_status(invoice_id: int):
     data = request.get_json() or {}
     new_status = (data.get("status") or "").strip().upper()
 
-    allowed_statuses = [
+    allowed_statuses = {
         "UNPAID",
         "PAID",
         "OVERDUE",
         "PENDING",
         "PENDING_CONFIRMATION",
-    ]
+    }
+
     if new_status not in allowed_statuses:
         return jsonify({"message": "invalid status"}), 400
 
@@ -910,35 +910,44 @@ def superadmin_update_invoice_status(invoice_id: int):
 
     old_status = invoice.status
 
-    # 👇 لو بتحوّل من PAID لأي حالة تانية → امسح كل الـ payments المرتبطة
-    if old_status == "PAID" and new_status != "PAID":
-        Payment.query.filter_by(invoice_id=invoice.id).delete()
-
-        # بما إن الفاتورة مبقتش مدفوعة، نشيل تاريخ السداد
+    # 1) لو من PAID → UNPAID → امسح الـ payments
+    if old_status == "PAID" and new_status == "UNPAID":
+        Payment.query.filter_by(invoice_id=invoice.id).delete(
+            synchronize_session=False
+        )
         invoice.paid_date = None
 
-    # لو بتحوّل إلى PAID ومفيش paid_date، نحطها دلوقتي
-    if new_status == "PAID" and invoice.paid_date is None:
-        invoice.paid_date = datetime.now()
+    # 2) لو من أي حاجة → PAID → تأكد فيه Payment وحدث paid_date
+    elif new_status == "PAID":
+        existing_payment = Payment.query.filter_by(invoice_id=invoice.id).first()
+        if not existing_payment:
+            # نحاول نجيب الـ resident بتاع الفاتورة
+            resident_user = User.query.filter_by(id=invoice.user_id).first()
+            if not resident_user:
+                return jsonify({"message": "resident user not found"}), 404
 
+            # create payment as CASH by default (أو ONLINE لو عايز لوجيك تاني)
+            p = Payment(
+                user_id=resident_user.id,
+                invoice_id=invoice.id,
+                amount=invoice.amount,
+                method="CASH",
+                collected_by_admin_id=user.id,
+                created_at=datetime.now(),
+                notes="Created automatically by SUPERADMIN status update",
+            )
+            db.session.add(p)
+
+        # في كل الأحوال لو بقت PAID خَلّي paid_date = now (لو مش متسجل قبل كده)
+        if not invoice.paid_date:
+            invoice.paid_date = datetime.now()
+
+    # 3) بقية الحالات (OVERDUE, PENDING, PENDING_CONFIRMATION)
+    # لا نلمس الـ payments، بس نغيّر status فقط
     invoice.status = new_status
-
     db.session.commit()
 
-    return jsonify(
-        {
-            "id": invoice.id,
-            "user_id": invoice.user_id,
-            "year": invoice.year,
-            "month": invoice.month,
-            "amount": float(invoice.amount),
-            "status": invoice.status,
-            "due_date": invoice.due_date.isoformat() if invoice.due_date else None,
-            "paid_date": invoice.paid_date.isoformat() if invoice.paid_date else None,
-            "notes": invoice.notes,
-        }
-    )
-
+    return jsonify({"message": "invoice status updated successfully"}), 200
 @admin_bp.route("/online_payments/pending", methods=["GET"])
 def admin_list_pending_online_payments():
     """
