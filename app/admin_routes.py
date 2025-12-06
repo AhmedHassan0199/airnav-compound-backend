@@ -304,6 +304,17 @@ def admin_resident_invoices(user_id: int):
         .order_by(MaintenanceInvoice.year.desc(), MaintenanceInvoice.month.desc())
         .all()
     )
+    payment = Payment.query.filter_by(invoice_id=inv.id).order_by(Payment.created_at.desc()).first()
+
+    if payment:
+        if payment.collected_by.role == "ONLINE_ADMIN":
+            payment_type = "ONLINE"
+        else:
+            payment_type = "CASH"
+        payment_date = payment.created_at.isoformat()
+    else:
+        payment_type = None
+        payment_date = None
 
     result = []
     for inv in invoices:
@@ -314,7 +325,8 @@ def admin_resident_invoices(user_id: int):
             "amount": float(inv.amount),
             "status": inv.status,
             "due_date": inv.due_date.isoformat() if inv.due_date else None,
-            "paid_date": inv.paid_date.isoformat() if inv.paid_date else None,
+            "paid_date": payment_date,  # override with real payment date
+            "payment_type": payment_type,  # CASH / ONLINE / None
             "notes": inv.notes,
         })
 
