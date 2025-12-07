@@ -715,9 +715,16 @@ def treasurer_buildings_paid_invoices_stats():
         )
     ).label("paid_invoices")
 
-    max_apartment_expr = func.max(
-        cast(PersonDetails.apartment, Integer)
-    ).label("max_apartment")
+    # نختار الشقق اللي قيمتها أرقام بس (Regex: أرقام فقط)
+    numeric_apartment_expr = case(
+        (
+            PersonDetails.apartment.op("~")(r'^[0-9]+$'),
+            cast(PersonDetails.apartment, Integer),
+        ),
+        else_=None,
+    )
+
+    max_apartment_expr = func.max(numeric_apartment_expr).label("max_apartment")
 
     # بنعمل outer join على الفواتير علشان العمارات اللي ماعندهاش فواتير تاخد 0 مش تختفي
     q = (
