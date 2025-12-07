@@ -768,3 +768,93 @@ def treasurer_buildings_paid_ranking():
         }
     )
 
+@treasurer_bp.route("/buildings/paid-amount-ranking", methods=["GET"])
+def treasurer_buildings_paid_amount_ranking():
+    """
+    TREASURER: ترتيب العمارات حسب نسبة التحصيل بالمبالغ (PAID).
+
+    النسبة = (إجمالي مبلغ الفواتير المسددة للعمارة)
+             ÷ (عدد الشقق في العمارة × 200)
+             × 100
+    """
+    user, error = get_current_user_from_request(allowed_roles=["TREASURER"])
+    if error:
+        msg, status = error
+        return jsonify({"message": msg}), status
+
+    year = request.args.get("year", type=int)
+    month = request.args.get("month", type=int)
+
+    # شروط الفاتورة المسددة في الفترة المطلوبة
+    paid_conditions = [MaintenanceInvoice.status == "PAID"]
+    if year is not None:
+        paid_conditions.append(MaintenanceInvoice.year == year)
+    if month is not None:
+        paid_conditions.append(MaintenanceInvoice.month == month)
+
+    paid_amount_case = case(
+        (and_(*paid_conditions), MaintenanceInvoice.amount),
+        else_=0,
+    )
+
+    q = (
+        db.session.query(
+            PersonDetails.building.label("building"),
+            func.max(
+                cast(PersonDetails.apartment, Integer)
+            ).label("max_apartment"),
+            func.coalesce(func.sum(paid_amount_case), 0).label("paid_amount"),
+        )
+        .join(User, User.id == PersonDetails.user_id)
+        .outerjoin(
+            MaintenanceInvoice,
+            MaintenanceInvoice.user_id == User.id,
+        )
+        .filter(User.role == "RESIDENT")
+        .filter(PersonDetails.building.isnot(None))
+        .group_by(PersonDetails.building)
+    )
+
+    rows = q.all()
+
+    buildings = []
+    for r in rows:
+        max_apt = r.max_apartment or 0
+        # 7 أدوار في كل العمارات
+        total_apartments = max_apt * 7 if max_apt > 0 else 0
+        expected_amount = float(total_apartments * 200)
+
+        paid_amount = float(r.paid_amount or 0)
+        if expected_amount > 0:
+            percentage = round((paid_amount / expected_amount) * 100, 2)
+        else:
+            percentage = 0.0
+
+        buildings.append(
+            {
+                "building": r.building,
+                "paid_amount": paid_amount,
+                "expected_amount": expected_amount,
+                "total_apartments": int(total_apartments),
+                "percentage": percentage,
+            }
+        )
+
+    # ترتيب حسب النسبة
+    buildings_sorted = sorted(
+        buildings, key=lambda b: b["percentage"], reverse=True
+    )
+
+    top5 = buildings_sorted[:5]
+    bottom5 = list(reversed(buildings_sorted[-5:])) if buildings_sorted else []
+
+    return jsonify(
+        {
+            "year": year,
+            "month": month,
+            "buildings": buildings_sorted,
+            "top5": top5,
+            "bottom5": bottom5,
+        }
+    )
+
