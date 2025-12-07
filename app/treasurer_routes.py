@@ -677,7 +677,7 @@ def treasurer_notify_late_residents_push():
         }
     ), 200
 
-@treasurer_bp.route("/treasurer/buildings/paid-ranking", methods=["GET"])
+@treasurer_bp.route("/buildings/invoices-stats", methods=["GET"])
 def treasurer_buildings_paid_ranking():
     user, error = get_current_user_from_request(allowed_roles=["TREASURER"])
     if error:
