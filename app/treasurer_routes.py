@@ -1,6 +1,6 @@
 from datetime import date, datetime
 from flask import Blueprint, jsonify, request
-from sqlalchemy import func,or_ , case
+from sqlalchemy import func, cast, Integer, case, and_, or_
 import os
 
 from app import db
@@ -680,9 +680,13 @@ def treasurer_notify_late_residents_push():
 @treasurer_bp.route("/buildings/invoices-stats", methods=["GET"])
 def treasurer_buildings_paid_invoices_stats():
     """
-    TREASURER: إحصائيات عدد الفواتير المسددة (PAID) لكل عمارة،
-    مع إمكانية الفلترة بسنة وشهر.
-    
+    TREASURER:
+    إحصائيات نسبة الفواتير المسددة لكل عمارة.
+
+    - بناخد max(apartment) لكل عمارة → عدد الشقق في الدور.
+    - بنفترض ٧ أدوار في كل عمارة → total_apartments = max_apartment * 7
+    - paid_percentage = (paid_invoices / total_apartments) * 100
+
     Query params (اختياري):
       - year: int
       - month: int
@@ -692,42 +696,66 @@ def treasurer_buildings_paid_invoices_stats():
         message, status = error
         return jsonify({"message": message}), status
 
-    # قراءة الفلاتر من الـ query string
     year = request.args.get("year", type=int)
     month = request.args.get("month", type=int)
 
+    floors_count = 7  # ثابت: ٧ أدوار لكل عمارة
+
+    # شرط الفاتورة المسددة في الفترة المطلوبة
+    paid_cond = (MaintenanceInvoice.status == "PAID")
+    if year is not None:
+        paid_cond = and_(paid_cond, MaintenanceInvoice.year == year)
+    if month is not None:
+        paid_cond = and_(paid_cond, MaintenanceInvoice.month == month)
+
+    paid_invoices_expr = func.sum(
+        case(
+            (paid_cond, 1),
+            else_=0,
+        )
+    ).label("paid_invoices")
+
+    max_apartment_expr = func.max(
+        cast(PersonDetails.apartment, Integer)
+    ).label("max_apartment")
+
+    # بنعمل outer join على الفواتير علشان العمارات اللي ماعندهاش فواتير تاخد 0 مش تختفي
     q = (
         db.session.query(
             PersonDetails.building.label("building"),
-            func.count(MaintenanceInvoice.id).label("paid_invoices"),
+            paid_invoices_expr,
+            max_apartment_expr,
         )
-        .join(User, User.id == PersonDetails.user_id)
-        .join(
-            MaintenanceInvoice,
-            MaintenanceInvoice.user_id == User.id,
-        )
-        .filter(MaintenanceInvoice.status == "PAID")
+        .outerjoin(User, User.id == PersonDetails.user_id)
+        .outerjoin(MaintenanceInvoice, MaintenanceInvoice.user_id == User.id)
+        .filter(PersonDetails.building.isnot(None))
+        .group_by(PersonDetails.building)
     )
 
-    if year is not None:
-        q = q.filter(MaintenanceInvoice.year == year)
-
-    if month is not None:
-        q = q.filter(MaintenanceInvoice.month == month)
-
-    rows = (
-        q.group_by(PersonDetails.building)
-        .order_by(func.count(MaintenanceInvoice.id).desc())
-        .all()
-    )
+    rows = q.all()
 
     result = []
     for r in rows:
+        building = r.building
+        paid_invoices = int(r.paid_invoices or 0)
+        max_apartment = int(r.max_apartment or 0)
+
+        total_apartments = max_apartment * floors_count
+        if total_apartments > 0:
+            paid_percentage = (paid_invoices / total_apartments) * 100.0
+        else:
+            paid_percentage = 0.0
+
         result.append(
             {
-                "building": r.building,  # ممكن تكون None لو فيه داتا ناقصة
-                "paid_invoices": int(r.paid_invoices or 0),
+                "building": building,
+                "paid_invoices": paid_invoices,
+                "total_apartments": total_apartments,
+                "paid_percentage": round(paid_percentage, 2),
             }
         )
+
+    # ممكن نرتّب من السيرفر برضه (اختياري)
+    result.sort(key=lambda x: x["paid_percentage"], reverse=True)
 
     return jsonify(result), 200
