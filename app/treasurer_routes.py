@@ -678,40 +678,45 @@ def treasurer_notify_late_residents_push():
     ), 200
 
 @treasurer_bp.route("/buildings/invoices-stats", methods=["GET"])
-def treasurer_buildings_invoices_stats():
+def treasurer_buildings_paid_invoices_stats():
     """
-    TREASURER: إحصائيات عدد الفواتير لكل عمارة.
-    يرجّع قائمة بالعمارات + عدد الفواتير (كل الحالات) + المسددة + غير المسددة.
+    TREASURER: إحصائيات عدد الفواتير المسددة (PAID) لكل عمارة،
+    مع إمكانية الفلترة بسنة وشهر.
+    
+    Query params (اختياري):
+      - year: int
+      - month: int
     """
     user, error = get_current_user_from_request(allowed_roles=["TREASURER"])
     if error:
         message, status = error
         return jsonify({"message": message}), status
 
-    # join invoices مع السكان علشان نجيب رقم العمارة
-    rows = (
+    # قراءة الفلاتر من الـ query string
+    year = request.args.get("year", type=int)
+    month = request.args.get("month", type=int)
+
+    q = (
         db.session.query(
             PersonDetails.building.label("building"),
-            func.count(MaintenanceInvoice.id).label("total_invoices"),
-            func.sum(
-                case(
-                    (MaintenanceInvoice.status == "PAID", 1),
-                    else_=0,
-                )
-            ).label("paid_invoices"),
-            func.sum(
-                case(
-                    (MaintenanceInvoice.status != "PAID", 1),
-                    else_=0,
-                )
-            ).label("unpaid_invoices"),
+            func.count(MaintenanceInvoice.id).label("paid_invoices"),
         )
         .join(User, User.id == PersonDetails.user_id)
         .join(
             MaintenanceInvoice,
             MaintenanceInvoice.user_id == User.id,
         )
-        .group_by(PersonDetails.building)
+        .filter(MaintenanceInvoice.status == "PAID")
+    )
+
+    if year is not None:
+        q = q.filter(MaintenanceInvoice.year == year)
+
+    if month is not None:
+        q = q.filter(MaintenanceInvoice.month == month)
+
+    rows = (
+        q.group_by(PersonDetails.building)
         .order_by(func.count(MaintenanceInvoice.id).desc())
         .all()
     )
@@ -720,10 +725,8 @@ def treasurer_buildings_invoices_stats():
     for r in rows:
         result.append(
             {
-                "building": r.building,  # ممكن تبقى None لو في داتا ناقصة
-                "total_invoices": int(r.total_invoices or 0),
+                "building": r.building,  # ممكن تكون None لو فيه داتا ناقصة
                 "paid_invoices": int(r.paid_invoices or 0),
-                "unpaid_invoices": int(r.unpaid_invoices or 0),
             }
         )
 
