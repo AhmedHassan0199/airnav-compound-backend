@@ -1,6 +1,6 @@
 from datetime import date, datetime
 from flask import Blueprint, jsonify, request
-from sqlalchemy import func,or_
+from sqlalchemy import func,or_ , case
 import os
 
 from app import db
@@ -676,3 +676,55 @@ def treasurer_notify_late_residents_push():
             "details": details,
         }
     ), 200
+
+@treasurer_bp.route("/buildings/invoices-stats", methods=["GET"])
+def treasurer_buildings_invoices_stats():
+    """
+    TREASURER: إحصائيات عدد الفواتير لكل عمارة.
+    يرجّع قائمة بالعمارات + عدد الفواتير (كل الحالات) + المسددة + غير المسددة.
+    """
+    user, error = get_current_user_from_request(allowed_roles=["TREASURER"])
+    if error:
+        message, status = error
+        return jsonify({"message": message}), status
+
+    # join invoices مع السكان علشان نجيب رقم العمارة
+    rows = (
+        db.session.query(
+            PersonDetails.building.label("building"),
+            func.count(MaintenanceInvoice.id).label("total_invoices"),
+            func.sum(
+                case(
+                    (MaintenanceInvoice.status == "PAID", 1),
+                    else_=0,
+                )
+            ).label("paid_invoices"),
+            func.sum(
+                case(
+                    (MaintenanceInvoice.status != "PAID", 1),
+                    else_=0,
+                )
+            ).label("unpaid_invoices"),
+        )
+        .join(User, User.id == PersonDetails.user_id)
+        .join(
+            MaintenanceInvoice,
+            MaintenanceInvoice.user_id == User.id,
+        )
+        .group_by(PersonDetails.building)
+        .order_by(func.count(MaintenanceInvoice.id).desc())
+        .all()
+    )
+
+    result = []
+    for r in rows:
+        result.append(
+            {
+                "building": r.building,  # ممكن تبقى None لو في داتا ناقصة
+                "total_invoices": int(r.total_invoices or 0),
+                "paid_invoices": int(r.paid_invoices or 0),
+                "unpaid_invoices": int(r.unpaid_invoices or 0),
+            }
+        )
+
+    return jsonify(result), 200
