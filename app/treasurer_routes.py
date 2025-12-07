@@ -677,20 +677,8 @@ def treasurer_notify_late_residents_push():
         }
     ), 200
 
-@treasurer_bp.route("/buildings/invoices-stats", methods=["GET"])
-def treasurer_buildings_paid_invoices_stats():
-    """
-    TREASURER:
-    إحصائيات نسبة الفواتير المسددة لكل عمارة.
-
-    - بناخد max(apartment) لكل عمارة → عدد الشقق في الدور.
-    - بنفترض ٧ أدوار في كل عمارة → total_apartments = max_apartment * 7
-    - paid_percentage = (paid_invoices / total_apartments) * 100
-
-    Query params (اختياري):
-      - year: int
-      - month: int
-    """
+@treasurer_bp.route("/treasurer/buildings/paid-ranking", methods=["GET"])
+def treasurer_buildings_paid_ranking():
     user, error = get_current_user_from_request(allowed_roles=["TREASURER"])
     if error:
         message, status = error
@@ -699,70 +687,84 @@ def treasurer_buildings_paid_invoices_stats():
     year = request.args.get("year", type=int)
     month = request.args.get("month", type=int)
 
-    floors_count = 7  # ثابت: ٧ أدوار لكل عمارة
+    # default to current year/month if not provided
+    now = datetime.now()
+    if not year:
+        year = now.year
+    if not month:
+        month = now.month
 
-    # شرط الفاتورة المسددة في الفترة المطلوبة
-    paid_cond = (MaintenanceInvoice.status == "PAID")
-    if year is not None:
-        paid_cond = and_(paid_cond, MaintenanceInvoice.year == year)
-    if month is not None:
-        paid_cond = and_(paid_cond, MaintenanceInvoice.month == month)
-
-    paid_invoices_expr = func.sum(
-        case(
-            (paid_cond, 1),
-            else_=0,
-        )
-    ).label("paid_invoices")
-
-    # نختار الشقق اللي قيمتها أرقام بس (Regex: أرقام فقط)
-    numeric_apartment_expr = case(
-        (
-            PersonDetails.apartment.op("~")(r'^[0-9]+$'),
-            cast(PersonDetails.apartment, Integer),
-        ),
-        else_=None,
-    )
-
-    max_apartment_expr = func.max(numeric_apartment_expr).label("max_apartment")
-
-    # بنعمل outer join على الفواتير علشان العمارات اللي ماعندهاش فواتير تاخد 0 مش تختفي
-    q = (
+    rows = (
         db.session.query(
             PersonDetails.building.label("building"),
-            paid_invoices_expr,
-            max_apartment_expr,
+            func.sum(
+                case(
+                    [
+                        (
+                            and_(
+                                MaintenanceInvoice.status == "PAID",
+                                MaintenanceInvoice.year == year,
+                                MaintenanceInvoice.month == month,
+                            ),
+                            1,
+                        )
+                    ],
+                    else_=0,
+                )
+            ).label("paid_invoices"),
+            func.max(
+                cast(PersonDetails.apartment, Integer)
+            ).label("max_apartment"),
         )
-        .outerjoin(User, User.id == PersonDetails.user_id)
+        # 🔴 IMPORTANT: only RESIDENT users
+        .join(User, User.id == PersonDetails.user_id)
         .outerjoin(MaintenanceInvoice, MaintenanceInvoice.user_id == User.id)
-        .filter(PersonDetails.building.isnot(None))
+        .filter(
+            User.role == "RESIDENT",
+            PersonDetails.building.isnot(None),
+            PersonDetails.building != "",
+        )
         .group_by(PersonDetails.building)
+        .all()
     )
 
-    rows = q.all()
+    buildings = []
+    for row in rows:
+        building = row.building
+        paid_invoices = int(row.paid_invoices or 0)
+        max_apt = row.max_apartment or 0
 
-    result = []
-    for r in rows:
-        building = r.building
-        paid_invoices = int(r.paid_invoices or 0)
-        max_apartment = int(r.max_apartment or 0)
+        # 7 floors per building as you specified
+        total_apartments = max_apt * 7 if max_apt > 0 else 0
 
-        total_apartments = max_apartment * floors_count
         if total_apartments > 0:
-            paid_percentage = (paid_invoices / total_apartments) * 100.0
+            percentage = (paid_invoices / total_apartments) * 100.0
         else:
-            paid_percentage = 0.0
+            percentage = 0.0
 
-        result.append(
+        buildings.append(
             {
                 "building": building,
                 "paid_invoices": paid_invoices,
                 "total_apartments": total_apartments,
-                "paid_percentage": round(paid_percentage, 2),
+                "percentage": round(percentage, 2),
             }
         )
 
-    # ممكن نرتّب من السيرفر برضه (اختياري)
-    result.sort(key=lambda x: x["paid_percentage"], reverse=True)
+    # sort descending by percentage
+    buildings_sorted = sorted(
+        buildings, key=lambda b: b["percentage"], reverse=True
+    )
 
-    return jsonify(result), 200
+    top5 = buildings_sorted[:5]
+    bottom5 = list(reversed(buildings_sorted))[:5]
+
+    return jsonify(
+        {
+            "year": year,
+            "month": month,
+            "buildings": buildings_sorted,
+            "top5": top5,
+            "bottom5": bottom5,
+        }
+    )
