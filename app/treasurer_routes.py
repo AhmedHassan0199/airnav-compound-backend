@@ -699,16 +699,15 @@ def treasurer_buildings_paid_ranking():
             PersonDetails.building.label("building"),
             func.sum(
                 case(
-                    [
-                        (
-                            and_(
-                                MaintenanceInvoice.status == "PAID",
-                                MaintenanceInvoice.year == year,
-                                MaintenanceInvoice.month == month,
-                            ),
-                            1,
-                        )
-                    ],
+                    # ✅ هنا التعديل: tuple واحدة مش list
+                    (
+                        and_(
+                            MaintenanceInvoice.status == "PAID",
+                            MaintenanceInvoice.year == year,
+                            MaintenanceInvoice.month == month,
+                        ),
+                        1,
+                    ),
                     else_=0,
                 )
             ).label("paid_invoices"),
@@ -716,7 +715,7 @@ def treasurer_buildings_paid_ranking():
                 cast(PersonDetails.apartment, Integer)
             ).label("max_apartment"),
         )
-        # 🔴 IMPORTANT: only RESIDENT users
+        # نشتغل بس على السكان الحقيقيين
         .join(User, User.id == PersonDetails.user_id)
         .outerjoin(MaintenanceInvoice, MaintenanceInvoice.user_id == User.id)
         .filter(
@@ -734,7 +733,7 @@ def treasurer_buildings_paid_ranking():
         paid_invoices = int(row.paid_invoices or 0)
         max_apt = row.max_apartment or 0
 
-        # 7 floors per building as you specified
+        # 7 أدوار في كل عمارة
         total_apartments = max_apt * 7 if max_apt > 0 else 0
 
         if total_apartments > 0:
@@ -751,7 +750,7 @@ def treasurer_buildings_paid_ranking():
             }
         )
 
-    # sort descending by percentage
+    # sort descending
     buildings_sorted = sorted(
         buildings, key=lambda b: b["percentage"], reverse=True
     )
@@ -768,3 +767,4 @@ def treasurer_buildings_paid_ranking():
             "bottom5": bottom5,
         }
     )
+
