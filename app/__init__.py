@@ -39,6 +39,7 @@ def create_app():
     from .admin_routes import admin_bp 
     from .treasurer_routes import treasurer_bp
     from .notifications_routes import notifications_bp
+    from .public_routes import public_bp
 
     app.register_blueprint(main_bp)
     app.register_blueprint(auth_bp, url_prefix="/api/auth")
@@ -46,5 +47,6 @@ def create_app():
     app.register_blueprint(admin_bp, url_prefix="/api/admin") 
     app.register_blueprint(treasurer_bp, url_prefix="/api/treasurer")
     app.register_blueprint(notifications_bp, url_prefix="/api/notifications")
+    app.register_blueprint(public_bp,url_prefix="/api/public")
 
     return app
