@@ -1408,3 +1408,70 @@ def superadmin_list_fundraisers():
         "month": r.month,
         "created_at": r.created_at.isoformat(),
     } for r in rows])
+
+@admin_bp.route("/superadmin/fundraisers/<int:fundraiser_id>", methods=["PUT"])
+def superadmin_update_fundraiser(fundraiser_id: int):
+    current_user, error = get_current_user_from_request(allowed_roles=["SUPERADMIN"])
+    if error:
+        return error
+
+    fr = db.session.query(FundRaiser).get(fundraiser_id)
+    if not fr:
+        return jsonify({"message": "Fundraiser not found"}), 404
+
+    data = request.get_json(silent=True) or {}
+
+    new_name = (data.get("name") or fr.name).strip()
+    new_amount = data.get("amount", None)
+
+    if not new_name:
+        return jsonify({"message": "name is required"}), 400
+
+    # amount optional في update (لو مش مبعوت يبقى مفيش تعديل رصيد)
+    amount_changed = False
+    old_amount = float(fr.amount)
+    if new_amount is not None:
+        try:
+            new_amount = float(new_amount)
+        except:
+            return jsonify({"message": "amount must be a number"}), 400
+        if new_amount <= 0:
+            return jsonify({"message": "amount must be > 0"}), 400
+        amount_changed = (abs(new_amount - old_amount) > 1e-9)
+
+    # Update record
+    fr.name = new_name
+    if new_amount is not None:
+        fr.amount = new_amount
+    fr.updated_at = datetime.utcnow()
+
+    # Ledger adjustment if amount changed
+    union_balance_after = None
+    if amount_changed:
+        delta = float(new_amount) - old_amount  # + means increase, - means decrease
+        prev_balance = _get_union_balance()
+        new_balance = prev_balance + delta
+
+        entry = UnionLedgerEntry(
+            date=datetime.utcnow(),
+            description=f"تعديل لوحة الشرف - {new_name} ({fr.month}/{fr.year})",
+            debit=float(-delta) if delta < 0 else 0.0,
+            credit=float(delta) if delta > 0 else 0.0,
+            balance_after=new_balance,
+            entry_type="FUNDRAISER_ADJUST",
+            created_by_id=current_user.id,
+        )
+        db.session.add(entry)
+        union_balance_after = new_balance
+
+    db.session.commit()
+
+    return jsonify({
+        "id": fr.id,
+        "name": fr.name,
+        "amount": float(fr.amount),
+        "year": fr.year,
+        "month": fr.month,
+        "updated_at": fr.updated_at.isoformat() if fr.updated_at else None,
+        "union_balance_after": union_balance_after
+    })
