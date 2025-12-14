@@ -5,7 +5,7 @@ from sqlalchemy import func, cast, Integer, case, and_
 from sqlalchemy.orm import aliased
 
 from app import db
-from app.models import User, PersonDetails, Payment, MaintenanceInvoice
+from app.models import User, PersonDetails, Payment, MaintenanceInvoice, FundRaiser
 
 public_bp = Blueprint("public_bp", __name__)
 
@@ -116,3 +116,25 @@ def public_building_units_status(building: str):
         "month": month,
         "units": result
     }), 200
+
+@public_bp.route("/fundraisers", methods=["GET"])
+def public_fundraisers():
+    year = request.args.get("year", type=int)
+    month = request.args.get("month", type=int)
+
+    q = FundRaiser.query
+    if year:
+        q = q.filter(FundRaiser.year == year)
+    if month:
+        q = q.filter(FundRaiser.month == month)
+
+    q = q.order_by(FundRaiser.year.desc(), FundRaiser.month.desc(), FundRaiser.id.desc())
+
+    rows = q.all()
+    return jsonify([{
+        "id": r.id,
+        "name": r.name,
+        "amount": float(r.amount),
+        "year": r.year,
+        "month": r.month,
+    } for r in rows])

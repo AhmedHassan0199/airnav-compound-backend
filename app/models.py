@@ -264,3 +264,18 @@ class AdminBuilding(db.Model):
     def __repr__(self):
         return f"<AdminBuilding admin={self.admin_id} building={self.building}>"
 
+class FundRaiser(db.Model):
+    __tablename__ = "fundraisers"
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=False)
+    amount = db.Column(db.Numeric(12, 2), nullable=False, default=0)
+
+    # month/year chosen by super admin (NOT full date)
+    year = db.Column(db.Integer, nullable=False)
+    month = db.Column(db.Integer, nullable=False)
+
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    created_by_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    created_by = db.relationship("User", foreign_keys=[created_by_id])

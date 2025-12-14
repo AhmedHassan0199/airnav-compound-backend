@@ -20,6 +20,8 @@ from app.models import (
     Settlement,
     OnlinePayment,
     AdminBuilding,
+    FundRaiser,
+    UnionLedgerEntry
 )
 from .auth.routes import get_current_user_from_request
 
@@ -1300,3 +1302,109 @@ def superadmin_get_resident_profile(user_id):
         },
     })
 
+def _get_union_balance():
+    last = UnionLedgerEntry.query.order_by(UnionLedgerEntry.id.desc()).first()
+    return float(last.balance_after) if last else 0.0
+
+@admin_bp.route("/superadmin/fundraisers", methods=["POST"])
+def superadmin_create_fundraiser():
+
+    user, error = get_current_user_from_request(allowed_roles=["SUPERADMIN"])
+    if error:
+        msg, status = error
+        return jsonify({"message": msg}), status
+    
+    data = request.get_json(force=True) or {}
+
+    name = (data.get("name") or "").strip()
+    amount = data.get("amount")
+    year = data.get("year")
+    month = data.get("month")
+
+    if not name:
+        return jsonify({"message": "Name is required"}), 400
+
+    try:
+        amount = float(amount)
+    except Exception:
+        return jsonify({"message": "Amount must be a number"}), 400
+
+    if amount <= 0:
+        return jsonify({"message": "Amount must be > 0"}), 400
+
+    try:
+        year = int(year)
+        month = int(month)
+    except Exception:
+        return jsonify({"message": "Year/Month are required"}), 400
+
+    if month < 1 or month > 12:
+        return jsonify({"message": "Month must be 1..12"}), 400
+
+    # current user from your auth context (adjust if your project uses g.user / current_user)
+    # user = getattr(request, "current_user", None)  # <-- عدّل السطر ده حسب مشروعك
+
+    fr = FundRaiser(
+        name=name,
+        amount=Decimal(str(round(amount, 2))),
+        year=year,
+        month=month,
+        created_by_id=user.id if user else None
+    )
+    db.session.add(fr)
+
+    # Reflect in Union ledger as CREDIT
+    old_balance = _get_union_balance()
+    new_balance = old_balance + amount
+
+    entry = UnionLedgerEntry(
+        date=datetime.utcnow(),
+        description=f"لوحة الشرف: {name} ({month}/{year})",
+        debit=Decimal("0"),
+        credit=Decimal(str(round(amount, 2))),
+        balance_after=Decimal(str(round(new_balance, 2))),
+        entry_type="FUNDRAISING",
+        created_by=user.username if user else "SYSTEM"
+    )
+    db.session.add(entry)
+
+    db.session.commit()
+
+    return jsonify({
+        "id": fr.id,
+        "name": fr.name,
+        "amount": float(fr.amount),
+        "year": fr.year,
+        "month": fr.month,
+        "created_at": fr.created_at.isoformat(),
+        "union_balance_after": float(entry.balance_after)
+    }), 201
+
+@admin_bp.route("/superadmin/fundraisers", methods=["GET"])
+def superadmin_list_fundraisers():
+
+    current_user, error = get_current_user_from_request(allowed_roles=["SUPERADMIN"])
+    if error:
+        msg, status = error
+        return jsonify({"message": msg}), status
+
+    year = request.args.get("year", type=int)
+    month = request.args.get("month", type=int)
+
+    q = FundRaiser.query
+    if year:
+        q = q.filter(FundRaiser.year == year)
+    if month:
+        q = q.filter(FundRaiser.month == month)
+
+    q = q.order_by(FundRaiser.year.desc(), FundRaiser.month.desc(), FundRaiser.id.desc())
+
+    rows = q.all()
+    return jsonify([{
+        "id": r.id,
+        "name": r.name,
+        "amount": float(r.amount),
+        "year": r.year,
+        "month": r.month,
+        "created_at": r.created_at.isoformat(),
+    } for r in rows])
