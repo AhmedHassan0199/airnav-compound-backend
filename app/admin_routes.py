@@ -1364,7 +1364,7 @@ def superadmin_create_fundraiser():
         credit=Decimal(str(round(amount, 2))),
         balance_after=Decimal(str(round(new_balance, 2))),
         entry_type="FUNDRAISING",
-        created_by=user.username if user else "SYSTEM"
+        created_by_id =user.id
     )
     db.session.add(entry)
 
