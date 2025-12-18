@@ -1397,7 +1397,7 @@ def superadmin_list_fundraisers():
     if month:
         q = q.filter(FundRaiser.month == month)
 
-    q = q.order_by(FundRaiser.year.desc(), FundRaiser.month.desc(), FundRaiser.id.desc())
+    q = q.order_by(FundRaiser.year.desc(), FundRaiser.month.desc(), FundRaiser.id.asc())
 
     rows = q.all()
     return jsonify([{
