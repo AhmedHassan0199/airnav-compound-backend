@@ -2,6 +2,7 @@ from flask import Blueprint
 from datetime import datetime
 from flask import Blueprint, jsonify, request
 from sqlalchemy import func, cast, Integer, case, and_
+from sqlalchemy import desc
 from sqlalchemy.orm import aliased
 
 from app import db
@@ -191,3 +192,36 @@ def public_create_election_transport_booking():
         "station": booking.station,
         "created_at": booking.created_at.isoformat(),
     }), 201
+
+
+@public_bp.route("/election-transport-bookings", methods=["Get"])
+def public_list_election_transport_bookings():
+    """
+    Public page: View reservations split by station
+    Returns: [{id,name,phone,chairs,station,created_at}, ...]
+    """
+
+    # optional filters (لو حبيت تضيفهم لاحقاً)
+    station = request.args.get("station", type=str)
+
+    q = ElectionTransportBooking.query
+
+    if station:
+        q = q.filter(ElectionTransportBooking.station == station)
+
+    # newest first (أحدث حجز يظهر فوق)
+    q = q.order_by(desc(ElectionTransportBooking.created_at), desc(ElectionTransportBooking.id))
+
+    rows = q.all()
+
+    return jsonify([
+        {
+            "id": r.id,
+            "name": r.name,
+            "phone": r.phone,
+            "chairs": int(r.seats),          # مهم: فرونت متوقع اسمها chairs
+            "station": r.station,
+            "created_at": r.created_at.isoformat(),
+        }
+        for r in rows
+    ]), 200
