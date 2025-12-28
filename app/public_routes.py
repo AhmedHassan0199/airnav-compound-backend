@@ -139,7 +139,7 @@ def public_fundraisers():
         "month": r.month,
     } for r in rows])
 
-@public_bp.route("/election-transport-bookings", methods=["GET"])
+@public_bp.route("/election-transport-bookings", methods=["POST"])
 def public_create_election_transport_booking():
     data = request.get_json(silent=True) or {}
 
