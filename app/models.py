@@ -279,3 +279,16 @@ class FundRaiser(db.Model):
 
     created_by_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
     created_by = db.relationship("User", foreign_keys=[created_by_id])
+
+class ElectionTransportBooking(db.Model):
+    __tablename__ = "election_transport_bookings"
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    name = db.Column(db.String(200), nullable=False)
+    phone = db.Column(db.String(30), nullable=False, unique=True, index=True)
+
+    seats = db.Column(db.Integer, nullable=False)  # 1..5
+    station = db.Column(db.String(50), nullable=False)  # "مدينة الملاحة الجوية" | "شيراتون" | "مدينة نصر"
+
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)

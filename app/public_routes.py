@@ -5,7 +5,7 @@ from sqlalchemy import func, cast, Integer, case, and_
 from sqlalchemy.orm import aliased
 
 from app import db
-from app.models import User, PersonDetails, Payment, MaintenanceInvoice, FundRaiser
+from app.models import User, PersonDetails, Payment, MaintenanceInvoice, FundRaiser, ElectionTransportBooking
 
 public_bp = Blueprint("public_bp", __name__)
 
@@ -138,3 +138,56 @@ def public_fundraisers():
         "year": r.year,
         "month": r.month,
     } for r in rows])
+
+@public_bp.route("/election-transport-bookings", methods=["GET"])
+def public_create_election_transport_booking():
+    data = request.get_json(silent=True) or {}
+
+    name = (data.get("name") or "").strip()
+    phone = (data.get("phone") or "").strip()
+    seats = data.get("seats")
+    station = (data.get("station") or "").strip()
+
+    if not name or not phone or not seats or not station:
+        return jsonify({"message": "كل الحقول مطلوبة."}), 400
+
+    try:
+        seats_int = int(seats)
+    except:
+        return jsonify({"message": "عدد الكراسي غير صحيح."}), 400
+
+    if seats_int < 1 or seats_int > 5:
+        return jsonify({"message": "عدد الكراسي لازم يكون من 1 إلى 5."}), 400
+
+    allowed_stations = ["مدينة الملاحة الجوية", "شيراتون", "مدينة نصر"]
+    if station not in allowed_stations:
+        return jsonify({"message": "المحطة غير صحيحة."}), 400
+
+    # check duplicate phone
+    exists = ElectionTransportBooking.query.filter_by(phone=phone).first()
+    if exists:
+        return jsonify({"message": "تم استخدام رقم الموبايل ده بالفعل للحجز."}), 409
+
+    booking = ElectionTransportBooking(
+        name=name,
+        phone=phone,
+        seats=seats_int,
+        station=station,
+    )
+
+    db.session.add(booking)
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        # في حالة unique constraint اشتغل بسبب race condition
+        return jsonify({"message": "تم استخدام رقم الموبايل ده بالفعل للحجز."}), 409
+
+    return jsonify({
+        "id": booking.id,
+        "name": booking.name,
+        "phone": booking.phone,
+        "seats": booking.seats,
+        "station": booking.station,
+        "created_at": booking.created_at.isoformat(),
+    }), 201
