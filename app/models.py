@@ -292,3 +292,16 @@ class ElectionTransportBooking(db.Model):
     station = db.Column(db.String(50), nullable=False)  # "مدينة الملاحة الجوية" | "شيراتون" | "مدينة نصر"
 
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+
+class Income(db.Model):
+    __tablename__ = "incomes"
+
+    id = db.Column(db.Integer, primary_key=True)
+    date = db.Column(db.DateTime, default=datetime.now(), nullable=False)
+    amount = db.Column(db.Numeric(10, 2), nullable=False)
+    category = db.Column(db.String(100), nullable=True)
+    description = db.Column(db.String(255), nullable=False)
+
+    created_by_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    created_by = db.relationship("User", backref="incomes")

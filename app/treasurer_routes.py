@@ -5,7 +5,7 @@ import os
 from sqlalchemy.orm import aliased
 
 from app import db
-from app.models import User, PersonDetails, Payment, Settlement, MaintenanceInvoice, UnionLedgerEntry, Expense, NotificationSubscription
+from app.models import User, PersonDetails, Payment, Settlement, MaintenanceInvoice, UnionLedgerEntry, Expense, NotificationSubscription,Income
 from .auth.routes import get_current_user_from_request
 from app.fcm import send_push_v1
 
@@ -298,6 +298,11 @@ def treasurer_summary():
 
     unpaid_invoices = total_invoices - paid_invoices
 
+    total_incomes = (
+        db.session.query(func.coalesce(func.sum(Income.amount), 0))
+        .scalar()
+        or 0
+    )
 
     return jsonify(
         {
@@ -310,6 +315,7 @@ def treasurer_summary():
             "total_invoices": int(total_invoices),
             "paid_invoices": int(paid_invoices),
             "unpaid_invoices": int(unpaid_invoices),
+            "total_incomes": float(total_incomes),
         }
     )
 
@@ -974,3 +980,88 @@ def treasurer_building_units_status(building: str):
         "units": result
     }), 200
 
+
+@treasurer_bp.route("/incomes", methods=["POST"])
+def treasurer_create_income():
+    """
+    Treasurer records a union income (e.g. apartment rent).
+    Also writes a ledger entry (credit).
+    """
+    current_user, error = get_current_user_from_request(allowed_roles=["TREASURER", "SUPERADMIN"])
+    if error:
+        message, status = error
+        return jsonify({"message": message}), status
+
+    data = request.get_json() or {}
+    amount = data.get("amount")
+    description = (data.get("description") or "").strip()
+    category = (data.get("category") or "").strip() or None
+
+    if amount is None or not description:
+        return jsonify({"message": "amount and description are required"}), 400
+
+    try:
+        amount_val = float(amount)
+        if amount_val <= 0:
+            raise ValueError()
+    except Exception:
+        return jsonify({"message": "invalid amount"}), 400
+
+    inc = Income(
+        amount=amount_val,
+        description=description,
+        category=category,
+        date=datetime.now(),
+        created_by_id=current_user.id,
+    )
+    db.session.add(inc)
+
+    current_balance = get_union_balance()
+    new_balance = current_balance + amount_val
+
+    ledger_entry = UnionLedgerEntry(
+        date=datetime.now(),
+        description=f"إيراد: {description}",
+        debit=0,
+        credit=amount_val,
+        balance_after=new_balance,
+        entry_type="INCOME",
+        created_by_id=current_user.id,
+    )
+    db.session.add(ledger_entry)
+
+    db.session.commit()
+    return jsonify({"message": "income recorded"}), 201
+
+@treasurer_bp.route("/incomes", methods=["GET"])
+def treasurer_list_incomes():
+    current_user, error = get_current_user_from_request(allowed_roles=["TREASURER", "SUPERADMIN"])
+    if error:
+        message, status = error
+        return jsonify({"message": message}), status
+
+    try:
+        limit = int(request.args.get("limit", 50))
+    except ValueError:
+        limit = 50
+
+    incomes = (
+        db.session.query(Income, User)
+        .join(User, Income.created_by_id == User.id)
+        .order_by(Income.date.desc(), Income.id.desc())
+        .limit(limit)
+        .all()
+    )
+
+    result = []
+    for inc, user in incomes:
+        result.append({
+            "id": inc.id,
+            "date": inc.date.isoformat(),
+            "amount": float(inc.amount),
+            "category": inc.category,
+            "description": inc.description,
+            "created_by": user.username,
+        })
+
+    return jsonify(result)
