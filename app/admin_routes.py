@@ -532,38 +532,55 @@ def admin_create_invoice():
 def admin_delete_invoice(invoice_id: int):
     """
     Admin deletes an invoice (only if not PAID and has no payments).
+    Also handles online_payments FK constraint.
     """
-    current_user, error = get_current_user_from_request(allowed_roles=["ADMIN","ONLINE_ADMIN"])
+    current_user, error = get_current_user_from_request(
+        allowed_roles=["ADMIN", "ONLINE_ADMIN"]
+    )
     if error:
         message, status = error
         return jsonify({"message": message}), status
 
     invoice = MaintenanceInvoice.query.filter_by(id=invoice_id).first()
+    if not invoice:
+        return jsonify({"message": "invoice not found"}), 404
 
     # Restrict admin access by building
     if current_user.role == "ADMIN":
         resident = User.query.get(invoice.user_id)
-        details = resident.person_details
+        details = resident.person_details if resident else None
         allowed = get_admin_allowed_buildings(current_user.id)
         if details and details.building not in allowed:
             return jsonify({"message": "not allowed: resident outside your buildings"}), 403
 
-    if not invoice:
-        return jsonify({"message": "invoice not found"}), 404
-
-    # من باب الأمان: منمسحش فاتورة مدفوعة أو عليها Payments أو قيد تأكيد دفع إلكتروني
+    # Safety: don't delete PAID invoice
     if invoice.status == "PAID":
         return jsonify({"message": "cannot delete a PAID invoice"}), 400
 
+    # If invoice itself is pending confirmation, block delete
     if invoice.status == "PENDING_CONFIRMATION":
         return jsonify({
             "message": "cannot delete invoice while an online payment is pending confirmation"
         }), 400
 
+    # Block delete if there is any OnlinePayment still pending for this invoice
+    pending_online = OnlinePayment.query.filter_by(
+        invoice_id=invoice.id, status="PENDING"
+    ).count()
+    if pending_online > 0:
+        return jsonify({
+            "message": "cannot delete invoice while an online payment request is still pending"
+        }), 400
 
+    # Block delete if there are cash payments recorded
     payments_count = Payment.query.filter_by(invoice_id=invoice.id).count()
     if payments_count > 0:
         return jsonify({"message": "cannot delete invoice that has payments recorded"}), 400
+
+    # ✅ IMPORTANT FIX:
+    # Delete related online_payments (REJECTED/APPROVED) rows first to avoid FK update-to-NULL.
+    # Approved usually implies invoice got PAID, but we keep this safe anyway.
+    OnlinePayment.query.filter_by(invoice_id=invoice.id).delete(synchronize_session=False)
 
     db.session.delete(invoice)
     db.session.commit()
