@@ -1065,3 +1065,45 @@ def treasurer_list_incomes():
         })
 
     return jsonify(result)
+
+@treasurer_bp.route("/ledger/stats", methods=["GET"])
+def treasurer_ledger_stats():
+    """
+    Aggregated totals for Union Ledger (full history), NOT limited by /ledger limit.
+    """
+    current_user, error = get_current_user_from_request(allowed_roles=["TREASURER", "SUPERADMIN"])
+    if error:
+        message, status = error
+        return jsonify({"message": message}), status
+
+    total_debit, total_credit = (
+        db.session.query(
+            func.coalesce(func.sum(UnionLedgerEntry.debit), 0),
+            func.coalesce(func.sum(UnionLedgerEntry.credit), 0),
+        )
+        .one()
+    )
+
+    # Optional breakdown by type (useful for your formula)
+    settlements_credit = (
+        db.session.query(func.coalesce(func.sum(UnionLedgerEntry.credit), 0))
+        .filter(UnionLedgerEntry.entry_type == "SETTLEMENT")
+        .scalar()
+        or 0
+    )
+
+    incomes_credit = (
+        db.session.query(func.coalesce(func.sum(UnionLedgerEntry.credit), 0))
+        .filter(UnionLedgerEntry.entry_type == "INCOME")
+        .scalar()
+        or 0
+    )
+
+    return jsonify({
+        "total_debit": float(total_debit),
+        "total_credit": float(total_credit),
+        "breakdown": {
+            "admin_settlements": float(settlements_credit),
+            "additional_incomes": float(incomes_credit),
+        }
+    }), 200
