@@ -298,8 +298,9 @@ def treasurer_summary():
 
     unpaid_invoices = total_invoices - paid_invoices
 
+
     total_incomes = (
-        db.session.query(func.coalesce(func.sum(Income.amount), 0))
+        db.session.query(func.coalesce(func.sum(UnionLedgerEntry.credit), 0))
         .scalar()
         or 0
     )
