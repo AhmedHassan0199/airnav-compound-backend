@@ -1,0 +1,4 @@
+building,floor,apartment,year,month,invoice_amount,payment_amount,due_date,invoice_notes,payment_notes,create_invoice_if_missing,skip_if_paid
+1,1,1,2026,4,200,200,2026-04-05,April maintenance,Cash collected,TRUE,TRUE
+1,1,2,2026,4,200,200,2026-04-05,April maintenance,Collected from resident,TRUE,TRUE
+2,3,5,2026,5,250,250,2026-05-05,May maintenance,Imported payment,TRUE,TRUE
