@@ -392,6 +392,14 @@ class InvoiceBatchImporter:
 
         return results
 
+    def delete_invoice(self, invoice_id: int) -> None:
+        resp = self._request("DELETE", f"/admin/invoices/{invoice_id}")
+
+        if resp.status_code != 200:
+            raise RuntimeError(
+                f"Failed to delete invoice_id={invoice_id}: "
+                f"{resp.status_code} - {resp.text}"
+            )
 
 def save_results(results: List[Dict[str, Any]], output_csv: str = "import_results.csv") -> None:
     fieldnames = sorted({key for row in results for key in row.keys()})
@@ -402,14 +410,7 @@ def save_results(results: List[Dict[str, Any]], output_csv: str = "import_result
         writer.writerows(results)
 
 
-def delete_invoice(self, invoice_id: int) -> None:
-    resp = self._request("DELETE", f"/admin/invoices/{invoice_id}")
 
-    if resp.status_code != 200:
-        raise RuntimeError(
-            f"Failed to delete invoice_id={invoice_id}: "
-            f"{resp.status_code} - {resp.text}"
-        )
 
 def main() -> None:
     if len(sys.argv) < 5:
