@@ -261,6 +261,8 @@ class InvoiceBatchImporter:
 
         created_invoice = False
 
+        recreated_invoice = False
+
         if invoice is None:
             if not create_invoice_if_missing:
                 raise RuntimeError(
@@ -278,22 +280,40 @@ class InvoiceBatchImporter:
             )
             created_invoice = True
 
-        invoice_id = invoice["id"]
-        status = str(invoice.get("status", "")).upper()
+        else:
+            invoice_id = invoice["id"]
+            status = str(invoice.get("status", "")).upper()
 
-        if status == "PAID":
-            if skip_if_paid:
-                return {
-                    "success": True,
-                    "action": "SKIPPED_ALREADY_PAID",
-                    "resident_id": user_id,
-                    "invoice_id": invoice_id,
-                    "year": year,
-                    "month": month,
-                    "message": "Invoice already paid, skipped.",
-                    "payment_method_used": self.get_payment_method_for_logged_in_user(),
-                }
-            raise RuntimeError(f"Invoice {invoice_id} is already PAID")
+            if status == "PAID":
+                if skip_if_paid:
+                    return {
+                        "success": True,
+                        "action": "SKIPPED_ALREADY_PAID",
+                        "resident_id": user_id,
+                        "invoice_id": invoice_id,
+                        "year": year,
+                        "month": month,
+                        "message": "Invoice already paid, skipped.",
+                        "payment_method_used": self.get_payment_method_for_logged_in_user(),
+                    }
+                raise RuntimeError(f"Invoice {invoice_id} is already PAID")
+
+            # Invoice exists but is not paid:
+            # delete it, then recreate it using the CSV amount
+            self.delete_invoice(invoice_id)
+
+            invoice = self.create_invoice(
+                user_id=user_id,
+                year=year,
+                month=month,
+                amount=invoice_amount,
+                due_date=due_date,
+                notes=invoice_notes,
+            )
+
+            recreated_invoice = True
+
+        invoice_id = invoice["id"]
 
         collect_result = self.collect_payment(
             user_id=user_id,
@@ -304,12 +324,19 @@ class InvoiceBatchImporter:
 
         return {
             "success": True,
-            "action": "CREATED_AND_COLLECTED" if created_invoice else "COLLECTED",
+            "action": (
+                "RECREATED_AND_COLLECTED"
+                if recreated_invoice
+                else "CREATED_AND_COLLECTED"
+                if created_invoice
+                else "COLLECTED"
+            ),
             "resident_id": user_id,
             "invoice_id": invoice_id,
             "year": year,
             "month": month,
             "created_invoice": created_invoice,
+            "recreated_invoice": recreated_invoice,
             "payment_method_used": self.get_payment_method_for_logged_in_user(),
             "api_message": collect_result.get("message"),
         }
@@ -374,6 +401,15 @@ def save_results(results: List[Dict[str, Any]], output_csv: str = "import_result
         writer.writeheader()
         writer.writerows(results)
 
+
+def delete_invoice(self, invoice_id: int) -> None:
+    resp = self._request("DELETE", f"/admin/invoices/{invoice_id}")
+
+    if resp.status_code != 200:
+        raise RuntimeError(
+            f"Failed to delete invoice_id={invoice_id}: "
+            f"{resp.status_code} - {resp.text}"
+        )
 
 def main() -> None:
     if len(sys.argv) < 5:
