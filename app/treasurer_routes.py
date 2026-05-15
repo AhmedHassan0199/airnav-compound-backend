@@ -1122,12 +1122,20 @@ def treasurer_monthly_status_report():
     if not year or not month:
         return jsonify({"message": "year and month are required"}), 400
 
+    INSTAPAY_ADMIN_ID = 4
+
     rows = (
         db.session.query(
             PersonDetails.building,
             PersonDetails.floor,
             PersonDetails.apartment,
             MaintenanceInvoice.status.label("invoice_status"),
+            func.max(
+                case(
+                    (Payment.collected_by_admin_id == INSTAPAY_ADMIN_ID, 1),
+                    else_=0,
+                )
+            ).label("has_instapay_payment"),
         )
         .join(User, User.id == PersonDetails.user_id)
         .outerjoin(
@@ -1138,7 +1146,14 @@ def treasurer_monthly_status_report():
                 MaintenanceInvoice.month == month,
             )
         )
+        .outerjoin(Payment, Payment.invoice_id == MaintenanceInvoice.id)
         .filter(User.role == "RESIDENT")
+        .group_by(
+            PersonDetails.building,
+            PersonDetails.floor,
+            PersonDetails.apartment,
+            MaintenanceInvoice.status,
+        )
         .order_by(
             cast(PersonDetails.building, Integer).asc(),
             cast(PersonDetails.floor, Integer).asc(),
@@ -1148,19 +1163,42 @@ def treasurer_monthly_status_report():
     )
 
     result = []
+    instapay_paid_count = 0
+    gate_paid_count = 0
+    total_paid_count = 0
+
     for r in rows:
+        is_paid = r.invoice_status == "PAID"
+
+        payment_method = "-"
+        if is_paid:
+            total_paid_count += 1
+
+            if int(r.has_instapay_payment or 0) == 1:
+                payment_method = "انستاباي"
+                instapay_paid_count += 1
+            else:
+                payment_method = "كاش علي البوابه"
+                gate_paid_count += 1
+
         result.append({
             "building": r.building,
             "floor": r.floor,
             "apartment": r.apartment,
             "year": year,
             "month": month,
-            "paid": r.invoice_status == "PAID",
-            "status": "مسدد" if r.invoice_status == "PAID" else "غير مسدد",
+            "paid": is_paid,
+            "status": "مسدد" if is_paid else "غير مسدد",
+            "payment_method": payment_method,
         })
 
     return jsonify({
         "year": year,
         "month": month,
+        "summary": {
+            "instapay_paid_count": instapay_paid_count,
+            "gate_paid_count": gate_paid_count,
+            "total_paid_count": total_paid_count,
+        },
         "rows": result,
     }), 200
