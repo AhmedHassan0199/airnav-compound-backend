@@ -1108,3 +1108,59 @@ def treasurer_ledger_stats():
             "additional_incomes": float(incomes_credit),
         }
     }), 200
+
+@treasurer_bp.route("/invoices/monthly-status-report", methods=["GET"])
+def treasurer_monthly_status_report():
+    user, error = get_current_user_from_request(allowed_roles=["TREASURER", "SUPERADMIN"])
+    if error:
+        msg, status = error
+        return jsonify({"message": msg}), status
+
+    year = request.args.get("year", type=int)
+    month = request.args.get("month", type=int)
+
+    if not year or not month:
+        return jsonify({"message": "year and month are required"}), 400
+
+    rows = (
+        db.session.query(
+            PersonDetails.building,
+            PersonDetails.floor,
+            PersonDetails.apartment,
+            MaintenanceInvoice.status.label("invoice_status"),
+        )
+        .join(User, User.id == PersonDetails.user_id)
+        .outerjoin(
+            MaintenanceInvoice,
+            and_(
+                MaintenanceInvoice.user_id == User.id,
+                MaintenanceInvoice.year == year,
+                MaintenanceInvoice.month == month,
+            )
+        )
+        .filter(User.role == "RESIDENT")
+        .order_by(
+            cast(PersonDetails.building, Integer).asc(),
+            cast(PersonDetails.floor, Integer).asc(),
+            cast(PersonDetails.apartment, Integer).asc(),
+        )
+        .all()
+    )
+
+    result = []
+    for r in rows:
+        result.append({
+            "building": r.building,
+            "floor": r.floor,
+            "apartment": r.apartment,
+            "year": year,
+            "month": month,
+            "paid": r.invoice_status == "PAID",
+            "status": "مسدد" if r.invoice_status == "PAID" else "غير مسدد",
+        })
+
+    return jsonify({
+        "year": year,
+        "month": month,
+        "rows": result,
+    }), 200
