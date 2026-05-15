@@ -1202,3 +1202,51 @@ def treasurer_monthly_status_report():
         },
         "rows": result,
     }), 200
+
+@treasurer_bp.route("/payments/monthly-collected-report", methods=["GET"])
+def treasurer_monthly_collected_report():
+    user, error = get_current_user_from_request(
+        allowed_roles=["TREASURER", "SUPERADMIN"]
+    )
+    if error:
+        msg, status = error
+        return jsonify({"message": msg}), status
+
+    year = request.args.get("year", type=int)
+
+    if not year:
+        return jsonify({"message": "year is required"}), 400
+
+    rows = (
+        db.session.query(
+            MaintenanceInvoice.month.label("month"),
+            func.coalesce(func.sum(Payment.amount), 0).label("total_amount"),
+        )
+        .join(MaintenanceInvoice, MaintenanceInvoice.id == Payment.invoice_id)
+        .filter(MaintenanceInvoice.year == year)
+        .group_by(MaintenanceInvoice.month)
+        .order_by(MaintenanceInvoice.month.asc())
+        .all()
+    )
+
+    result = []
+    grand_total = 0.0
+
+    for r in rows:
+        amount = float(r.total_amount or 0)
+        if amount <= 0:
+            continue
+
+        grand_total += amount
+
+        result.append({
+            "month": r.month,
+            "year": year,
+            "total_amount": amount,
+        })
+
+    return jsonify({
+        "year": year,
+        "grand_total": grand_total,
+        "rows": result,
+    }), 200
